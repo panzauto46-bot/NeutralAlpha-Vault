@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+api-dev.err.log
+api-dev.log
+vite-dev.err.log
+vite-dev.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Anchor / Solana build artifacts
+onchain/target/
+onchain/.anchor/
+onchain/test-ledger/
+
+# Rust
+onchain/programs/neutralalpha_vault/target/
+
+# Misc
+*.docx~
+~$*

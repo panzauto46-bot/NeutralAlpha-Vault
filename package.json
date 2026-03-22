@@ -1,0 +1,43 @@
+{
+  "name": "react-vite-tailwind",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev:web",
+    "dev:web": "vite",
+    "dev:api": "node server/index.mjs",
+    "dev:stack": "node scripts/dev-stack.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test:smoke": "node scripts/smoke-e2e.mjs",
+    "testnet:harness": "node scripts/testnet-harness.mjs",
+    "vault:accounts": "node scripts/vault-client.mjs accounts",
+    "vault:init": "node scripts/vault-client.mjs init",
+    "vault:deposit": "node scripts/vault-client.mjs deposit",
+    "vault:withdraw": "node scripts/vault-client.mjs withdraw"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "clsx": "2.1.1",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^0.577.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^3.8.0",
+    "tailwind-merge": "3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.17",
+    "@types/node": "^22.0.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vite": "7.2.4",
+    "vite-plugin-singlefile": "2.3.0"
+  }
+}
