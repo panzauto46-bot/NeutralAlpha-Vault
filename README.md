@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="./assets/banner.png" alt="NeutralAlpha Vault Banner" width="100%" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Solana-362D59?style=for-the-badge&logo=solana&logoColor=white" alt="Solana" />
   <img src="https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React" />
   <img src="https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
