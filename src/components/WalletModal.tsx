@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Wallet, Download, ExternalLink } from "lucide-react";
 import { useWallet, type DetectedWallet } from "@/context/WalletContext";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const INSTALLABLE_WALLETS = [
   {
@@ -26,11 +27,16 @@ const INSTALLABLE_WALLETS = [
 ];
 
 export default function WalletModal() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { showWalletModal, setShowWalletModal, availableWallets, connectWallet, walletBusy } = useWallet();
 
   async function handleSelect(wallet: DetectedWallet) {
     try {
       await connectWallet(wallet);
+      if (location.pathname !== "/dashboard") {
+        navigate("/dashboard");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Connection failed.";
       window.alert(msg);

@@ -9,8 +9,6 @@ function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-
-
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { walletAddress, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
@@ -49,8 +47,6 @@ export default function Navbar() {
     }
   }
 
-
-
   const walletLabel = useMemo(() => {
     if (walletBusy) {
       return walletAddress ? "Disconnecting..." : "Connecting...";
@@ -61,7 +57,7 @@ export default function Navbar() {
     if (!walletAddress) {
       return "Connect Wallet";
     }
-    const prefix = walletName ? `${walletName} · ` : "";
+    const prefix = walletName ? `${walletName} - ` : "";
     return `${prefix}${shortAddress(walletAddress)}`;
   }, [walletAddress, walletBusy, walletReady, walletName]);
 
@@ -188,3 +184,4 @@ export default function Navbar() {
     </nav>
   );
 }
+
