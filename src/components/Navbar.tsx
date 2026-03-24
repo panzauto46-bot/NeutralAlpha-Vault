@@ -22,7 +22,7 @@ function scrollToDashboard() {
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { walletAddress, walletReady, walletBusy, connect, disconnect } = useWallet();
+  const { walletAddress, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
   const location = useLocation();
   const navigate = useNavigate();
   const isDashboardRoute = location.pathname === "/dashboard";
@@ -47,46 +47,46 @@ export default function Navbar() {
 
   async function handleWalletClick() {
     try {
-      if (!walletReady) {
-        const downloadUrl = "https://phantom.app/download";
-        const popup = window.open(downloadUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          window.location.href = downloadUrl;
-        }
-        return;
-      }
       if (walletAddress) {
         await disconnect();
         return;
       }
-      await connect();
-      if (!isDashboardRoute) {
-        navigate("/dashboard");
-        window.setTimeout(scrollToDashboard, 50);
-      } else {
-        if (window.location.hash !== "#overview") {
-          window.location.hash = "overview";
-        }
-        scrollToDashboard();
-      }
+      // Open wallet selection modal
+      setShowWalletModal(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown wallet error.";
       window.alert(`Wallet action failed: ${message}`);
     }
   }
 
+  // Navigate to dashboard after wallet connects
+  useEffect(() => {
+    if (walletAddress && !isDashboardRoute) {
+      navigate("/dashboard");
+      window.setTimeout(scrollToDashboard, 50);
+    } else if (walletAddress && isDashboardRoute) {
+      if (window.location.hash !== "#overview") {
+        window.location.hash = "overview";
+      }
+      scrollToDashboard();
+    }
+    // Only trigger when walletAddress changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletAddress]);
+
   const walletLabel = useMemo(() => {
     if (walletBusy) {
       return walletAddress ? "Disconnecting..." : "Connecting...";
     }
     if (!walletReady) {
-      return "Install Phantom";
+      return "Connect Wallet";
     }
     if (!walletAddress) {
       return "Connect Wallet";
     }
-    return shortAddress(walletAddress);
-  }, [walletAddress, walletBusy, walletReady]);
+    const prefix = walletName ? `${walletName} · ` : "";
+    return `${prefix}${shortAddress(walletAddress)}`;
+  }, [walletAddress, walletBusy, walletReady, walletName]);
 
   const walletConnected = Boolean(walletAddress);
 
@@ -108,7 +108,7 @@ export default function Navbar() {
           </div>
 
           <div className="hidden md:flex items-center gap-1">
-            {navLinks.map((link) => (
+            {navLinks.map((link) =>
               link.route ? (
                 <Link
                   key={link.label}
@@ -129,8 +129,8 @@ export default function Navbar() {
                 >
                   {link.label}
                 </a>
-              )
-            ))}
+              ),
+            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -145,9 +145,7 @@ export default function Navbar() {
                 ${
                   walletConnected
                     ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                    : walletReady
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-400 hover:to-green-500"
-                      : "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 hover:bg-yellow-500/30"
+                    : "bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-400 hover:to-green-500"
                 }
               `}
             >
@@ -177,7 +175,7 @@ export default function Navbar() {
             className="md:hidden glass border-t border-white/5"
           >
             <div className="px-4 py-4 space-y-1">
-              {navLinks.map((link) => (
+              {navLinks.map((link) =>
                 link.route ? (
                   <Link
                     key={link.label}
@@ -196,16 +194,12 @@ export default function Navbar() {
                   >
                     {link.label}
                   </a>
-                )
-              ))}
+                ),
+              )}
               <button
                 onClick={() => void handleWalletClick()}
                 disabled={walletBusy}
-                className={`w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium ${
-                  walletReady
-                    ? "bg-gradient-to-r from-green-500 to-green-600 text-white"
-                    : "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
-                }`}
+                className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium bg-gradient-to-r from-green-500 to-green-600 text-white"
               >
                 <Wallet className="w-4 h-4" />
                 {walletLabel}

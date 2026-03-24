@@ -1,112 +1,207 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
+export interface DetectedWallet {
+  name: string;
+  icon: string;
+  provider: SolanaWalletProvider;
+}
+
+interface SolanaWalletProvider {
+  isPhantom?: boolean;
+  isBitKeep?: boolean;
+  isBitget?: boolean;
+  isSolflare?: boolean;
+  isBackpack?: boolean;
+  publicKey?: { toString(): string } | null;
+  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
+  disconnect: () => Promise<void>;
+  signAndSendTransaction?: (...args: unknown[]) => Promise<unknown>;
+  on?: (event: string, callback: (...args: unknown[]) => void) => void;
+  off?: (event: string, callback: (...args: unknown[]) => void) => void;
+}
+
 interface WalletContextValue {
   walletAddress: string | null;
   walletReady: boolean;
   walletBusy: boolean;
-  connect: () => Promise<void>;
+  walletName: string | null;
+  availableWallets: DetectedWallet[];
+  showWalletModal: boolean;
+  setShowWalletModal: (show: boolean) => void;
+  connectWallet: (wallet: DetectedWallet) => Promise<void>;
   disconnect: () => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextValue | undefined>(undefined);
 
-function getPhantomProvider() {
-  if (typeof window === "undefined") {
-    return null;
+const WALLET_ICONS: Record<string, string> = {
+  Phantom: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/phantom.svg",
+  "Bitget Wallet": "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/bitget.svg",
+  Solflare: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/solflare.svg",
+  Backpack: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/backpack.svg",
+};
+
+function detectWallets(): DetectedWallet[] {
+  if (typeof window === "undefined") return [];
+
+  const wallets: DetectedWallet[] = [];
+  const win = window as unknown as Record<string, unknown>;
+
+  // Phantom
+  const phantom = (win.phantom as Record<string, unknown>)?.solana as SolanaWalletProvider | undefined;
+  if (phantom?.isPhantom && typeof phantom.connect === "function") {
+    wallets.push({
+      name: "Phantom",
+      icon: WALLET_ICONS.Phantom,
+      provider: phantom,
+    });
   }
-  // Prefer the explicit Phantom namespace when available.
-  const provider = window.phantom?.solana ?? window.solana;
-  if (!provider || !provider.isPhantom || typeof provider.connect !== "function") {
-    return null;
+
+  // Bitget Wallet (formerly BitKeep)
+  const bitget = (win.bitkeep as Record<string, unknown>)?.solana as SolanaWalletProvider | undefined;
+  const bitgetAlt = (win.bitget as Record<string, unknown>)?.solana as SolanaWalletProvider | undefined;
+  const bitgetProvider = bitgetAlt ?? bitget;
+  if (bitgetProvider && typeof bitgetProvider.connect === "function") {
+    wallets.push({
+      name: "Bitget Wallet",
+      icon: WALLET_ICONS["Bitget Wallet"],
+      provider: bitgetProvider,
+    });
   }
-  return provider;
+
+  // Solflare
+  const solflare = win.solflare as SolanaWalletProvider | undefined;
+  if (solflare?.isSolflare && typeof solflare.connect === "function") {
+    wallets.push({
+      name: "Solflare",
+      icon: WALLET_ICONS.Solflare,
+      provider: solflare,
+    });
+  }
+
+  // Backpack
+  const backpack = (win.backpack as Record<string, unknown>)?.solana as SolanaWalletProvider | undefined;
+  const xnft = win.xnft as Record<string, unknown> | undefined;
+  const backpackProvider = backpack ?? (xnft?.solana as SolanaWalletProvider | undefined);
+  if (backpackProvider?.isBackpack && typeof backpackProvider.connect === "function") {
+    wallets.push({
+      name: "Backpack",
+      icon: WALLET_ICONS.Backpack,
+      provider: backpackProvider,
+    });
+  }
+
+  return wallets;
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [walletReady, setWalletReady] = useState(false);
   const [walletBusy, setWalletBusy] = useState(false);
+  const [walletName, setWalletName] = useState<string | null>(null);
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [availableWallets, setAvailableWallets] = useState<DetectedWallet[]>([]);
+  const [activeProvider, setActiveProvider] = useState<SolanaWalletProvider | null>(null);
 
+  // Detect wallets on mount
   useEffect(() => {
-    const provider = getPhantomProvider();
-    if (!provider) {
-      setWalletReady(false);
-      return;
-    }
-    setWalletReady(true);
-
-    const onConnect = (publicKey?: { toString(): string } | null) => {
-      if (publicKey) {
-        setWalletAddress(publicKey.toString());
-      } else if (provider.publicKey) {
-        setWalletAddress(provider.publicKey.toString());
-      }
+    const detect = () => {
+      const wallets = detectWallets();
+      setAvailableWallets(wallets);
+      setWalletReady(wallets.length > 0);
     };
-    const onDisconnect = () => setWalletAddress(null);
+
+    // Wallets inject after page load, so check with delay
+    detect();
+    const timer = setTimeout(detect, 500);
+    const timer2 = setTimeout(detect, 1500);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(timer2);
+    };
+  }, []);
+
+  // Listen for disconnect events on active provider
+  useEffect(() => {
+    if (!activeProvider) return;
+
+    const onDisconnect = () => {
+      setWalletAddress(null);
+      setWalletName(null);
+      setActiveProvider(null);
+    };
+
     const onAccountChanged = (publicKey?: { toString(): string } | null) => {
       if (!publicKey) {
-        setWalletAddress(null);
+        onDisconnect();
         return;
       }
       setWalletAddress(publicKey.toString());
     };
 
-    provider.on?.("connect", onConnect);
-    provider.on?.("disconnect", onDisconnect);
-    provider.on?.("accountChanged", onAccountChanged);
-
-    // Auto-connect fully disabled: wallet address only set after user clicks Connect.
+    activeProvider.on?.("disconnect", onDisconnect);
+    activeProvider.on?.("accountChanged", onAccountChanged as (...args: unknown[]) => void);
 
     return () => {
-      provider.off?.("connect", onConnect);
-      provider.off?.("disconnect", onDisconnect);
-      provider.off?.("accountChanged", onAccountChanged);
+      activeProvider.off?.("disconnect", onDisconnect);
+      activeProvider.off?.("accountChanged", onAccountChanged as (...args: unknown[]) => void);
     };
-  }, []);
+  }, [activeProvider]);
 
-  const connect = useCallback(async () => {
-    const provider = getPhantomProvider();
-    if (!provider) {
-      throw new Error("Phantom wallet not detected.");
-    }
+  const connectWallet = useCallback(async (wallet: DetectedWallet) => {
     setWalletBusy(true);
+    setShowWalletModal(false);
     try {
-      const result = await provider.connect();
+      const result = await wallet.provider.connect();
       setWalletAddress(result.publicKey.toString());
+      setWalletName(wallet.name);
+      setActiveProvider(wallet.provider);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Connection rejected.";
+      throw new Error(message);
     } finally {
       setWalletBusy(false);
     }
   }, []);
 
   const disconnect = useCallback(async () => {
-    const provider = getPhantomProvider();
-    if (!provider) {
+    if (!activeProvider) {
       setWalletAddress(null);
+      setWalletName(null);
       return;
     }
     setWalletBusy(true);
     try {
-      await provider.disconnect();
+      await activeProvider.disconnect();
       setWalletAddress(null);
+      setWalletName(null);
+      setActiveProvider(null);
     } finally {
       setWalletBusy(false);
     }
-  }, []);
+  }, [activeProvider]);
 
   const value = useMemo(
     () => ({
       walletAddress,
       walletReady,
       walletBusy,
-      connect,
+      walletName,
+      availableWallets,
+      showWalletModal,
+      setShowWalletModal,
+      connectWallet,
       disconnect,
     }),
-    [connect, disconnect, walletAddress, walletBusy, walletReady],
+    [walletAddress, walletReady, walletBusy, walletName, availableWallets, showWalletModal, connectWallet, disconnect],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
+
+// Re-export the context name to avoid conflicts with the component name
+export { WalletContext };
 
 export function useWallet() {
   const context = useContext(WalletContext);
