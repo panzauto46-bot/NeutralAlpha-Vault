@@ -6,7 +6,7 @@ const children = [];
 function runProcess(name, args) {
   const child = spawn(npmCmd, args, {
     stdio: ["ignore", "pipe", "pipe"],
-    shell: false,
+    shell: true,
   });
 
   child.stdout.on("data", (chunk) => {

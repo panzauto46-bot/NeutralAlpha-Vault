@@ -69,8 +69,11 @@ export interface VaultMutationResponse {
 
 export interface VaultActivityItem {
   id: string;
-  action: "DEPOSIT" | "WITHDRAW";
+  action: "DEPOSIT" | "WITHDRAW" | "REBALANCE";
   amountUsd: number;
   wallet: string;
   at: string;
+  signature?: string;
+  explorerUrl?: string;
+  source?: "api" | "onchain" | "fallback";
 }

@@ -3,7 +3,7 @@ import { Menu, X, Wallet, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/context/WalletContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { NETWORK_LABEL, NETWORK_PILL_CLASS } from "@/config/network";
+import { NETWORK_BADGE_LABEL, NETWORK_PILL_CLASS } from "@/config/network";
 
 function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -135,7 +135,7 @@ export default function Navbar() {
 
           <div className="flex items-center gap-2 sm:gap-3">
             <div className={`hidden sm:inline-flex items-center px-3 py-1 rounded-full text-xs border ${NETWORK_PILL_CLASS}`}>
-              {NETWORK_LABEL}
+              {NETWORK_BADGE_LABEL}
             </div>
             <button
               onClick={() => void handleWalletClick()}

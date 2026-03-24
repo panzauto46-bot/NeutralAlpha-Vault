@@ -38,3 +38,5 @@ onchain/programs/neutralalpha_vault/target/
 # Misc
 *.docx~
 ~$*
+
+.vercel

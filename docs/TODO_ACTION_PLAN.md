@@ -100,7 +100,7 @@
 
 ### PR-5: Real Deposit dari Frontend (Phantom → On-Chain)
 - **Effort:** 4 jam
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Apa yang dikerjakan:**
   - Tambah `@coral-xyz/anchor` ke dependencies
   - Buat service `src/services/vaultProgram.ts`:
@@ -118,7 +118,7 @@
 
 ### PR-6: Real Withdraw dari Frontend
 - **Effort:** 3 jam
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Apa yang dikerjakan:**
   - Tambah withdraw instruction builder di `vaultProgram.ts`
   - Tambah UI "Withdraw" section:
@@ -133,7 +133,7 @@
 
 ### PR-7: Tampilkan Real On-Chain Data di Dashboard
 - **Effort:** 3 jam
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Apa yang dikerjakan:**
   - Fetch vault state account via RPC (`total_usdc`, `total_shares`)
   - Fetch user position (`shares`, `unlock_ts`)
@@ -150,7 +150,7 @@
 
 ### PR-8: Transaction History dari On-Chain
 - **Effort:** 2 jam
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Apa yang dikerjakan:**
   - Fetch recent transactions untuk vault program dari RPC
   - Parse instruction data (deposit/withdraw/rebalance)
@@ -162,7 +162,7 @@
 
 ### PR-9: Network Badge (Devnet/Mainnet)
 - **Effort:** 1 jam
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Apa yang dikerjakan:**
   - Tambah env var `VITE_SOLANA_NETWORK=devnet`
   - Badge di navbar: "🟡 Devnet" atau "🟢 Mainnet"
@@ -174,7 +174,7 @@
 
 ### PR-10: Vercel Environment Setup
 - **Effort:** 15 menit
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Variables yang perlu di-set:**
   ```
   VITE_SOLANA_NETWORK=devnet
@@ -188,7 +188,7 @@
 
 ### PR-11: Rekam Demo Video 3 Menit
 - **Effort:** 2 jam
-- **Status:** ☐ Belum
+- **Status:** [MANUAL] Menunggu rekam manual (user)
 - **Script:**
   1. (0:00 - 0:30) Buka website → tunjukkan landing page + dashboard
   2. (0:30 - 0:45) Connect Phantom wallet
@@ -204,7 +204,7 @@
 
 ### PR-12: Update Footer Links + Placeholders
 - **Effort:** 10 menit
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Apa yang dikerjakan:**
   - GitHub link → `https://github.com/panzauto46-bot/NeutralAlpha-Vault`
   - Solscan link → ke deployed program address
@@ -216,14 +216,14 @@
 
 ### PR-13: Fix Bugs dari Audit
 - **Effort:** 30 menit
-- **Status:** ☐ Belum
+- **Status:** [DONE] Selesai (2026-03-24)
 - **Bug list:**
-  - [ ] Fix hardcoded health ratio `1.72` di `RiskManagement.tsx` (line 222)
-  - [ ] Tambah `<meta name="description">` di `index.html`
-  - [ ] Hapus unused `cn.ts` atau mulai gunakan
-  - [ ] Fix `dev-stack.mjs` untuk Windows (tambah `shell: true`)
-  - [ ] Bersihkan log files (`vite-dev.err.log`, `api-dev.err.log`)
-  - [ ] Tambah `LICENSE` file (MIT)
+  - [x] Fix hardcoded health ratio `1.72` di `RiskManagement.tsx` (line 222)
+  - [x] Tambah `<meta name="description">` di `index.html`
+  - [x] Hapus unused `cn.ts` atau mulai gunakan
+  - [x] Fix `dev-stack.mjs` untuk Windows (tambah `shell: true`)
+  - [x] Bersihkan log files (`vite-dev.err.log`, `api-dev.err.log`)
+  - [x] Tambah `LICENSE` file (MIT)
 - **Hasil:** Clean codebase, zero known bugs ✅
 
 ---
@@ -236,15 +236,15 @@
 | 🔴 1 | PR-2 | Buat test USDC | 30 min | ☑ |
 | 🔴 1 | PR-3 | Initialize vault | 30 min | ☑ |
 | 🔴 1 | PR-4 | Test deposit/withdraw | 1 jam | ☑ |
-| 🟡 2 | PR-5 | Real deposit via Phantom | 4 jam | ☐ |
-| 🟡 2 | PR-6 | Real withdraw via Phantom | 3 jam | ☐ |
-| 🟡 2 | PR-7 | On-chain data di dashboard | 3 jam | ☐ |
-| 🟢 3 | PR-8 | Transaction history | 2 jam | ☐ |
-| 🟢 3 | PR-9 | Network badge | 1 jam | ☐ |
-| 🟢 3 | PR-10 | Vercel env setup | 15 min | ☐ |
-| 🟢 3 | PR-11 | Demo video | 2 jam | ☐ |
-| 🟢 3 | PR-12 | Update links | 10 min | ☐ |
-| 🟢 3 | PR-13 | Fix bugs | 30 min | ☐ |
+| 🟡 2 | PR-5 | Real deposit via Phantom | 4 jam | DONE |
+| 🟡 2 | PR-6 | Real withdraw via Phantom | 3 jam | DONE |
+| 🟡 2 | PR-7 | On-chain data di dashboard | 3 jam | DONE |
+| 🟢 3 | PR-8 | Transaction history | 2 jam | DONE |
+| 🟢 3 | PR-9 | Network badge | 1 jam | DONE |
+| 🟢 3 | PR-10 | Vercel env setup | 15 min | DONE |
+| 🟢 3 | PR-11 | Demo video | 2 jam | MANUAL |
+| 🟢 3 | PR-12 | Update links | 10 min | DONE |
+| 🟢 3 | PR-13 | Fix bugs | 30 min | DONE |
 | | | **TOTAL** | **~20 jam** | |
 
 ---
@@ -261,3 +261,5 @@
 ---
 
 > **Note:** Setelah setiap PR selesai, update status ☐ → ☑ dan commit ke GitHub.
+
+

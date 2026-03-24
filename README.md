@@ -243,6 +243,27 @@ npm run build        # Production build → dist/
 npm run preview      # Preview production build
 ```
 
+### Frontend Routes
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Landing page (strategy, risks, architecture, docs) |
+| `/dashboard` | Wallet-gated app dashboard (deposit, withdraw, live metrics) |
+
+### Environment Variables (Local + Vercel)
+
+Copy `.env.example` and set:
+
+```bash
+VITE_SOLANA_NETWORK=devnet
+VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
+VITE_VAULT_PROGRAM_ID=<deployed_program_id>
+VITE_USDC_MINT=<devnet_usdc_mint>
+VITE_API_BASE_URL=/api/v1
+```
+
+For Vercel, add the same variables in `Project Settings → Environment Variables`, then redeploy.
+
 ---
 
 ## ⛓️ On-Chain Program

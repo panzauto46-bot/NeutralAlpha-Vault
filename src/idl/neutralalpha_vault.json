@@ -1,0 +1,48 @@
+{
+  "address": "QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD",
+  "metadata": {
+    "name": "neutralalpha_vault",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "NeutralAlpha Vault Anchor IDL subset for frontend integration."
+  },
+  "instructions": [
+    {
+      "name": "deposit",
+      "discriminator": [242, 35, 198, 137, 82, 225, 242, 182],
+      "accounts": [
+        { "name": "vault_state", "writable": true },
+        { "name": "vault_authority" },
+        { "name": "depositor_usdc", "writable": true },
+        { "name": "usdc_vault", "writable": true },
+        { "name": "share_mint", "writable": true },
+        { "name": "depositor_share", "writable": true },
+        { "name": "user_position", "writable": true },
+        { "name": "depositor", "writable": true, "signer": true },
+        { "name": "token_program" },
+        { "name": "system_program" }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [183, 18, 70, 156, 148, 109, 161, 34],
+      "accounts": [
+        { "name": "vault_state", "writable": true },
+        { "name": "vault_authority" },
+        { "name": "depositor_usdc", "writable": true },
+        { "name": "usdc_vault", "writable": true },
+        { "name": "share_mint", "writable": true },
+        { "name": "depositor_share", "writable": true },
+        { "name": "user_position", "writable": true },
+        { "name": "depositor", "signer": true },
+        { "name": "token_program" }
+      ],
+      "args": [
+        { "name": "share_amount", "type": "u64" }
+      ]
+    }
+  ]
+}

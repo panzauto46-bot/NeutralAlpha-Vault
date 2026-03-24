@@ -9,6 +9,14 @@ interface PhantomProvider {
   publicKey?: {
     toString(): string;
   };
+  signAndSendTransaction(
+    transaction: unknown,
+    options?: {
+      skipPreflight?: boolean;
+      preflightCommitment?: "processed" | "confirmed" | "finalized";
+      maxRetries?: number;
+    },
+  ): Promise<{ signature: string }>;
   connect(options?: { onlyIfTrusted?: boolean }): Promise<PhantomConnectResult>;
   disconnect(): Promise<void>;
   on?(
