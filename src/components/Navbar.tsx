@@ -2,29 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { Menu, X, Wallet, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/context/WalletContext";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { NETWORK_BADGE_LABEL, NETWORK_PILL_CLASS } from "@/config/network";
 
 function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-function scrollToDashboard() {
-  const target = document.getElementById("overview") ?? document.getElementById("dashboard");
-  if (!target) {
-    return;
-  }
 
-  const navOffset = 80;
-  const top = target.getBoundingClientRect().top + window.scrollY - navOffset;
-  window.scrollTo({ top, behavior: "smooth" });
-}
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { walletAddress, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
   const location = useLocation();
-  const navigate = useNavigate();
   const isDashboardRoute = location.pathname === "/dashboard";
 
   const navLinks = isDashboardRoute
@@ -59,20 +49,7 @@ export default function Navbar() {
     }
   }
 
-  // Navigate to dashboard after wallet connects
-  useEffect(() => {
-    if (walletAddress && !isDashboardRoute) {
-      navigate("/dashboard");
-      window.setTimeout(scrollToDashboard, 50);
-    } else if (walletAddress && isDashboardRoute) {
-      if (window.location.hash !== "#overview") {
-        window.location.hash = "overview";
-      }
-      scrollToDashboard();
-    }
-    // Only trigger when walletAddress changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [walletAddress]);
+
 
   const walletLabel = useMemo(() => {
     if (walletBusy) {
