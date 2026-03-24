@@ -319,7 +319,7 @@ pub struct ExternalCpiParams {
 pub struct InitializeVault<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    pub usdc_mint: Account<'info, Mint>,
+    pub usdc_mint: Box<Account<'info, Mint>>,
     #[account(
         init,
         payer = authority,
@@ -327,7 +327,7 @@ pub struct InitializeVault<'info> {
         seeds = [b"vault", usdc_mint.key().as_ref()],
         bump
     )]
-    pub vault_state: Account<'info, VaultState>,
+    pub vault_state: Box<Account<'info, VaultState>>,
     #[account(
         seeds = [b"vault_authority", vault_state.key().as_ref()],
         bump
@@ -335,26 +335,17 @@ pub struct InitializeVault<'info> {
     /// CHECK: PDA signing authority for vault-owned token accounts.
     pub vault_authority: UncheckedAccount<'info>,
     #[account(
-        init,
-        payer = authority,
-        token::mint = usdc_mint,
-        token::authority = vault_authority,
-        seeds = [b"usdc_vault", vault_state.key().as_ref()],
-        bump
+        mut,
+        constraint = usdc_vault.mint == usdc_mint.key(),
+        constraint = usdc_vault.owner == vault_authority.key()
     )]
-    pub usdc_vault: Account<'info, TokenAccount>,
+    pub usdc_vault: Box<Account<'info, TokenAccount>>,
     #[account(
-        init,
-        payer = authority,
-        mint::decimals = 6,
-        mint::authority = vault_authority,
-        seeds = [b"share_mint", vault_state.key().as_ref()],
-        bump
+        mut,
+        constraint = share_mint.decimals == 6
     )]
-    pub share_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
+    pub share_mint: Box<Account<'info, Mint>>,
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
@@ -376,7 +367,7 @@ pub struct Deposit<'info> {
         seeds = [b"vault", vault_state.usdc_mint.as_ref()],
         bump = vault_state.bump_state
     )]
-    pub vault_state: Account<'info, VaultState>,
+    pub vault_state: Box<Account<'info, VaultState>>,
     #[account(
         seeds = [b"vault_authority", vault_state.key().as_ref()],
         bump = vault_state.bump_authority
@@ -388,17 +379,17 @@ pub struct Deposit<'info> {
         constraint = depositor_usdc.owner == depositor.key(),
         constraint = depositor_usdc.mint == vault_state.usdc_mint
     )]
-    pub depositor_usdc: Account<'info, TokenAccount>,
+    pub depositor_usdc: Box<Account<'info, TokenAccount>>,
     #[account(mut, address = vault_state.usdc_vault)]
-    pub usdc_vault: Account<'info, TokenAccount>,
+    pub usdc_vault: Box<Account<'info, TokenAccount>>,
     #[account(mut, address = vault_state.share_mint)]
-    pub share_mint: Account<'info, Mint>,
+    pub share_mint: Box<Account<'info, Mint>>,
     #[account(
         mut,
         constraint = depositor_share.owner == depositor.key(),
         constraint = depositor_share.mint == vault_state.share_mint
     )]
-    pub depositor_share: Account<'info, TokenAccount>,
+    pub depositor_share: Box<Account<'info, TokenAccount>>,
     #[account(
         init_if_needed,
         payer = depositor,
@@ -406,7 +397,7 @@ pub struct Deposit<'info> {
         seeds = [b"position", vault_state.key().as_ref(), depositor.key().as_ref()],
         bump
     )]
-    pub user_position: Account<'info, UserPosition>,
+    pub user_position: Box<Account<'info, UserPosition>>,
     #[account(mut)]
     pub depositor: Signer<'info>,
     pub token_program: Program<'info, Token>,

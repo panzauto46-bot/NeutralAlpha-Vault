@@ -26,7 +26,7 @@
 
 ### PR-1: Setup Wallet + Deploy Anchor Program
 - **Effort:** 2 jam
-- **Status:** ☐ Belum
+- **Status:** ☑ Selesai (2026-03-24)
 - **Steps:**
   1. Set Solana ke devnet: `solana config set --url devnet`
   2. Buat keypair baru: `solana-keygen new`
@@ -43,31 +43,40 @@
 
 ### PR-2: Buat Test USDC Token di Devnet
 - **Effort:** 30 menit
-- **Status:** ☐ Belum
+- **Status:** ☑ Selesai (2026-03-24)
 - **Steps:**
   1. Buat SPL token mint: `spl-token create-token --decimals 6`
   2. Buat token account: `spl-token create-account <MINT_ADDRESS>`
   3. Mint tokens: `spl-token mint <MINT_ADDRESS> 1000000`
   4. Catat **USDC Mint Address**
 - **Hasil:** Ada test USDC yang bisa dipakai deposit ✅
+- **USDC Mint Address:** `4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ`
+- **Token Account:** `2k33vSPp9P7xPmw4QbAWcDHrxhoqCmK5DhzmRuxXwdDU` (balance: `1000000`)
+- **Tx Create Mint:** `https://solscan.io/tx/4gbQNcSgDUBfFFvZNyDvdLdxww5zJJnFq5VPG1ir5jnQvxPZaki9YxtD9Fc5Ffv4scvJGuqWG3Sn2298f1PLSMsA?cluster=devnet`
+- **Tx Create Account:** `https://solscan.io/tx/3cBtD1KswgHVxocZViAWw1mhrGPaA9Hxn91t7rox4dp8FMBkhDApEcMDW75xddaQscT5TeN9c4S7dJKVhgKPeyur?cluster=devnet`
+- **Tx Mint Token:** `https://solscan.io/tx/5uMtN61URSrgwcN2CCxacMDrskrCE3K9nicEF2AUqPUtgvkQ7Do5t3cry29qnjFKn4DqPjdb7FfNxLjz1bv6EuSF?cluster=devnet`
 
 ---
 
 ### PR-3: Initialize Vault On-Chain
 - **Effort:** 30 menit
-- **Status:** ☐ Belum
+- **Status:** ☑ Selesai (2026-03-24)
 - **Steps:**
   1. Set environment variables (program ID, USDC mint, dll)
   2. Jalankan: `npm run vault:init`
   3. Verifikasi vault state account di Solana Explorer
   4. Catat vault state address
 - **Hasil:** Vault account live di devnet ✅
+- **Vault State Address:** `5dnfKz6SYWtuGC1LZrfG77YNSkL8GAu8HqjmEKVxqDwY`
+- **USDC Vault Address:** `AqmnEqiAT6PJkFLhbHfvLkDV6ZUWzPWKptovKnbBBcYf`
+- **Share Mint Address:** `EABxbGDdQK6wus66pCveXsRAWrdJ5gwoRvP5JVpbC87n`
+- **Tx Initialize Vault:** `https://explorer.solana.com/tx/4UK1a8BMLMWGsjBU2Dq6SjE1ggZkHpr1vot5EouGK7bptvHTc7VAJeXHe1cGBvCt7SBe4n5kxWPEhU8zJEmkoEh6?cluster=devnet`
 
 ---
 
 ### PR-4: Test Deposit + Withdraw On-Chain
 - **Effort:** 1 jam
-- **Status:** ☐ Belum
+- **Status:** ☑ Selesai (2026-03-24)
 - **Steps:**
   1. Deposit: `npm run vault:deposit -- --amount 1000000`
   2. Verifikasi shares ter-mint
@@ -76,6 +85,12 @@
   5. Verifikasi USDC kembali
   6. Screenshot semua tx di Solscan
 - **Hasil:** Full deposit → withdraw cycle terbukti on-chain ✅
+- **Catatan:** Step 2 (verifikasi shares ter-mint) dilanjutkan manual oleh user.
+- **Tx Deposit:** `https://explorer.solana.com/tx/2e1rHwZUnde7Xei4L6BoZzRL6w1fxAW5NvzxMq42PzuthYJCegSEAJ3Q88ZSDwFSnwqnK4zcsYk1ihtUpGUGXZSZ?cluster=devnet`
+- **Tx Set Emergency Mode ON (bypass lock):** `https://explorer.solana.com/tx/wcSy3Piy6heDZJ4gav5sGSMxkM3Kx5VdLuYHrFGKiFwUyhRHik4hjuVU9iCwc9Z2JVU6D4T2ASrrKuz7LCJjC1y?cluster=devnet`
+- **Tx Withdraw:** `https://explorer.solana.com/tx/3enj1hfskPM7B3V3J1gVZozx6nd1XpQL8T6xWXGymUFAzymXUpxq92R1a26qvnqQDcD9cYDwxS8uwwvndsu4Qwoy?cluster=devnet`
+- **Tx Set Emergency Mode OFF:** `https://explorer.solana.com/tx/5Q8PDcAFtMpjLC5cpjbmszoBxg7ei1HWFf8b3zgeFGsJPeD5DsdeS7H3sQ39175qodgmVSn6QUpzCyt9YQfeYFJJ?cluster=devnet`
+- **USDC Balance Akhir:** `1000000` (kembali penuh ke wallet depositor)
 
 ---
 
@@ -217,10 +232,10 @@
 
 | Phase | PR | Task | Effort | Status |
 |-------|-----|------|--------|--------|
-| 🔴 1 | PR-1 | Deploy Anchor ke devnet | 2 jam | ☐ |
-| 🔴 1 | PR-2 | Buat test USDC | 30 min | ☐ |
-| 🔴 1 | PR-3 | Initialize vault | 30 min | ☐ |
-| 🔴 1 | PR-4 | Test deposit/withdraw | 1 jam | ☐ |
+| 🔴 1 | PR-1 | Deploy Anchor ke devnet | 2 jam | ☑ |
+| 🔴 1 | PR-2 | Buat test USDC | 30 min | ☑ |
+| 🔴 1 | PR-3 | Initialize vault | 30 min | ☑ |
+| 🔴 1 | PR-4 | Test deposit/withdraw | 1 jam | ☑ |
 | 🟡 2 | PR-5 | Real deposit via Phantom | 4 jam | ☐ |
 | 🟡 2 | PR-6 | Real withdraw via Phantom | 3 jam | ☐ |
 | 🟡 2 | PR-7 | On-chain data di dashboard | 3 jam | ☐ |

@@ -6,13 +6,14 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
-  SYSVAR_RENT_PUBKEY,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  MINT_SIZE,
   TOKEN_PROGRAM_ID,
+  createInitializeMintInstruction,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
@@ -85,19 +86,85 @@ function deriveVaultPdas(programId, usdcMint, payer) {
     [Buffer.from("vault_authority"), vaultState.toBuffer()],
     programId,
   );
-  const [usdcVault] = PublicKey.findProgramAddressSync(
-    [Buffer.from("usdc_vault"), vaultState.toBuffer()],
-    programId,
-  );
-  const [shareMint] = PublicKey.findProgramAddressSync(
-    [Buffer.from("share_mint"), vaultState.toBuffer()],
-    programId,
-  );
   const [userPosition] = PublicKey.findProgramAddressSync(
     [Buffer.from("position"), vaultState.toBuffer(), payer.toBuffer()],
     programId,
   );
-  return { vaultState, vaultAuthority, usdcVault, shareMint, userPosition };
+  return { vaultState, vaultAuthority, userPosition };
+}
+
+function clusterFromRpc(url) {
+  if (url.includes("devnet")) {
+    return "devnet";
+  }
+  if (url.includes("testnet")) {
+    return "testnet";
+  }
+  return "mainnet";
+}
+
+function decodeVaultState(data) {
+  // Skip 8-byte Anchor discriminator.
+  let offset = 8;
+  const readPubkey = () => {
+    const key = new PublicKey(data.subarray(offset, offset + 32));
+    offset += 32;
+    return key;
+  };
+
+  const authority = readPubkey();
+  const rebalanceBot = readPubkey();
+  const usdcMint = readPubkey();
+  const usdcVault = readPubkey();
+  const shareMint = readPubkey();
+  const driftProgram = readPubkey();
+  const jupiterProgram = readPubkey();
+  const pythPriceFeed = readPubkey();
+  const totalUsdc = data.readBigUInt64LE(offset);
+  offset += 8;
+  const totalShares = data.readBigUInt64LE(offset);
+  offset += 8;
+  const lockPeriodSecs = data.readBigInt64LE(offset);
+  offset += 8;
+  const lastRebalanceTs = data.readBigInt64LE(offset);
+  offset += 8;
+  const performanceFeeBps = data.readUInt16LE(offset);
+  offset += 2;
+  const paused = data.readUInt8(offset) === 1;
+  offset += 1;
+  const emergencyMode = data.readUInt8(offset) === 1;
+  offset += 1;
+  const bumpState = data.readUInt8(offset);
+  offset += 1;
+  const bumpAuthority = data.readUInt8(offset);
+
+  return {
+    authority,
+    rebalanceBot,
+    usdcMint,
+    usdcVault,
+    shareMint,
+    driftProgram,
+    jupiterProgram,
+    pythPriceFeed,
+    totalUsdc,
+    totalShares,
+    lockPeriodSecs,
+    lastRebalanceTs,
+    performanceFeeBps,
+    paused,
+    emergencyMode,
+    bumpState,
+    bumpAuthority,
+  };
+}
+
+async function fetchVaultState(connection, vaultState) {
+  const account = await connection.getAccountInfo(vaultState, "confirmed");
+  if (!account) {
+    return null;
+  }
+  return decodeVaultState(account.data);
 }
 
 function encodeInitializeArgs(args) {
@@ -123,8 +190,14 @@ function encodeU64Ix(ixName, amount) {
   return Buffer.concat([discriminator(ixName), payload]);
 }
 
-async function maybeCreateAtaIx(connection, payer, owner, mint) {
-  const ata = getAssociatedTokenAddressSync(mint, owner, false, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+async function maybeCreateAtaIx(connection, payer, owner, mint, allowOwnerOffCurve = false) {
+  const ata = getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    allowOwnerOffCurve,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
   const account = await connection.getAccountInfo(ata, "confirmed");
   if (account) {
     return { ata, ix: null };
@@ -140,7 +213,7 @@ async function maybeCreateAtaIx(connection, payer, owner, mint) {
   return { ata, ix };
 }
 
-async function sendAndConfirm(connection, payer, instructions, label) {
+async function sendAndConfirm(connection, payer, instructions, label, extraSigners = []) {
   const latest = await connection.getLatestBlockhash("confirmed");
   const tx = new Transaction({
     feePayer: payer.publicKey,
@@ -148,7 +221,7 @@ async function sendAndConfirm(connection, payer, instructions, label) {
     lastValidBlockHeight: latest.lastValidBlockHeight,
   });
   tx.add(...instructions);
-  tx.sign(payer);
+  tx.sign(payer, ...extraSigners);
   const sig = await connection.sendRawTransaction(tx.serialize(), {
     skipPreflight: false,
     preflightCommitment: "confirmed",
@@ -163,20 +236,40 @@ async function sendAndConfirm(connection, payer, instructions, label) {
     "confirmed",
   );
   info(`${label} confirmed: ${sig}`);
-  info(`Explorer: https://explorer.solana.com/tx/${sig}?cluster=testnet`);
+  info(`Explorer: https://explorer.solana.com/tx/${sig}?cluster=${clusterFromRpc(config.rpcUrl)}`);
 }
 
 async function runAccounts() {
+  const connection = new Connection(config.rpcUrl, "confirmed");
   const programId = requirePubkey("NEUTRALALPHA_VAULT_PROGRAM_ID", config.programId);
   const usdcMint = requirePubkey("USDC_MINT", config.usdcMint);
   const payer = loadKeypair();
   const pdas = deriveVaultPdas(programId, usdcMint, payer.publicKey);
+  const expectedUsdcVaultAta = getAssociatedTokenAddressSync(
+    usdcMint,
+    pdas.vaultAuthority,
+    true,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+  const vaultState = await fetchVaultState(connection, pdas.vaultState);
+
   info(`payer: ${payer.publicKey.toBase58()}`);
   info(`vault_state: ${pdas.vaultState.toBase58()}`);
   info(`vault_authority: ${pdas.vaultAuthority.toBase58()}`);
-  info(`usdc_vault: ${pdas.usdcVault.toBase58()}`);
-  info(`share_mint: ${pdas.shareMint.toBase58()}`);
   info(`user_position: ${pdas.userPosition.toBase58()}`);
+
+  if (!vaultState) {
+    info(`vault_state_status: not_initialized`);
+    info(`expected_usdc_vault_ata: ${expectedUsdcVaultAta.toBase58()}`);
+    return;
+  }
+
+  info(`vault_state_status: initialized`);
+  info(`usdc_vault: ${vaultState.usdcVault.toBase58()}`);
+  info(`share_mint: ${vaultState.shareMint.toBase58()}`);
+  info(`total_usdc: ${vaultState.totalUsdc.toString()}`);
+  info(`total_shares: ${vaultState.totalShares.toString()}`);
 }
 
 async function runInitialize() {
@@ -190,6 +283,29 @@ async function runInitialize() {
   const rebalanceBot = new PublicKey(config.rebalanceBot || payer.publicKey);
 
   const pdas = deriveVaultPdas(programId, usdcMint, payer.publicKey);
+  const { ata: usdcVaultAta, ix: createUsdcVaultAtaIx } = await maybeCreateAtaIx(
+    connection,
+    payer.publicKey,
+    pdas.vaultAuthority,
+    usdcMint,
+    true,
+  );
+  const shareMint = Keypair.generate();
+  const mintRent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE, "confirmed");
+  const createShareMintIx = SystemProgram.createAccount({
+    fromPubkey: payer.publicKey,
+    newAccountPubkey: shareMint.publicKey,
+    lamports: mintRent,
+    space: MINT_SIZE,
+    programId: TOKEN_PROGRAM_ID,
+  });
+  const initShareMintIx = createInitializeMintInstruction(
+    shareMint.publicKey,
+    6,
+    pdas.vaultAuthority,
+    null,
+    TOKEN_PROGRAM_ID,
+  );
   const data = encodeInitializeArgs({
     rebalanceBot,
     driftProgram,
@@ -206,16 +322,21 @@ async function runInitialize() {
       { pubkey: usdcMint, isSigner: false, isWritable: false },
       { pubkey: pdas.vaultState, isSigner: false, isWritable: true },
       { pubkey: pdas.vaultAuthority, isSigner: false, isWritable: false },
-      { pubkey: pdas.usdcVault, isSigner: false, isWritable: true },
-      { pubkey: pdas.shareMint, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: usdcVaultAta, isSigner: false, isWritable: true },
+      { pubkey: shareMint.publicKey, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
     ],
     data,
   });
 
-  await sendAndConfirm(connection, payer, [ix], "initialize_vault");
+  const ixs = [];
+  if (createUsdcVaultAtaIx) {
+    ixs.push(createUsdcVaultAtaIx);
+  }
+  ixs.push(createShareMintIx, initShareMintIx, ix);
+  await sendAndConfirm(connection, payer, ixs, "initialize_vault", [shareMint]);
+  info(`initialized_share_mint: ${shareMint.publicKey.toBase58()}`);
+  info(`initialized_usdc_vault: ${usdcVaultAta.toBase58()}`);
 }
 
 async function runDeposit() {
@@ -230,6 +351,10 @@ async function runDeposit() {
   const programId = requirePubkey("NEUTRALALPHA_VAULT_PROGRAM_ID", config.programId);
   const usdcMint = requirePubkey("USDC_MINT", config.usdcMint);
   const pdas = deriveVaultPdas(programId, usdcMint, payer.publicKey);
+  const vaultState = await fetchVaultState(connection, pdas.vaultState);
+  if (!vaultState) {
+    throw new Error(`vault_state is not initialized: ${pdas.vaultState.toBase58()}`);
+  }
   const { ata: depositorUsdcAta } = await maybeCreateAtaIx(
     connection,
     payer.publicKey,
@@ -240,7 +365,7 @@ async function runDeposit() {
     connection,
     payer.publicKey,
     payer.publicKey,
-    pdas.shareMint,
+    vaultState.shareMint,
   );
 
   const depositIx = new TransactionInstruction({
@@ -249,8 +374,8 @@ async function runDeposit() {
       { pubkey: pdas.vaultState, isSigner: false, isWritable: true },
       { pubkey: pdas.vaultAuthority, isSigner: false, isWritable: false },
       { pubkey: depositorUsdcAta, isSigner: false, isWritable: true },
-      { pubkey: pdas.usdcVault, isSigner: false, isWritable: true },
-      { pubkey: pdas.shareMint, isSigner: false, isWritable: true },
+      { pubkey: vaultState.usdcVault, isSigner: false, isWritable: true },
+      { pubkey: vaultState.shareMint, isSigner: false, isWritable: true },
       { pubkey: depositorShareAta, isSigner: false, isWritable: true },
       { pubkey: pdas.userPosition, isSigner: false, isWritable: true },
       { pubkey: payer.publicKey, isSigner: true, isWritable: true },
@@ -281,6 +406,10 @@ async function runWithdraw() {
   const programId = requirePubkey("NEUTRALALPHA_VAULT_PROGRAM_ID", config.programId);
   const usdcMint = requirePubkey("USDC_MINT", config.usdcMint);
   const pdas = deriveVaultPdas(programId, usdcMint, payer.publicKey);
+  const vaultState = await fetchVaultState(connection, pdas.vaultState);
+  if (!vaultState) {
+    throw new Error(`vault_state is not initialized: ${pdas.vaultState.toBase58()}`);
+  }
 
   const { ata: depositorUsdcAta } = await maybeCreateAtaIx(
     connection,
@@ -292,7 +421,7 @@ async function runWithdraw() {
     connection,
     payer.publicKey,
     payer.publicKey,
-    pdas.shareMint,
+    vaultState.shareMint,
   );
 
   const withdrawIx = new TransactionInstruction({
@@ -301,8 +430,8 @@ async function runWithdraw() {
       { pubkey: pdas.vaultState, isSigner: false, isWritable: true },
       { pubkey: pdas.vaultAuthority, isSigner: false, isWritable: false },
       { pubkey: depositorUsdcAta, isSigner: false, isWritable: true },
-      { pubkey: pdas.usdcVault, isSigner: false, isWritable: true },
-      { pubkey: pdas.shareMint, isSigner: false, isWritable: true },
+      { pubkey: vaultState.usdcVault, isSigner: false, isWritable: true },
+      { pubkey: vaultState.shareMint, isSigner: false, isWritable: true },
       { pubkey: depositorShareAta, isSigner: false, isWritable: true },
       { pubkey: pdas.userPosition, isSigner: false, isWritable: true },
       { pubkey: payer.publicKey, isSigner: true, isWritable: false },
