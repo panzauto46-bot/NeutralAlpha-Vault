@@ -7,6 +7,17 @@ function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
+function scrollToDashboard() {
+  const target = document.getElementById("dashboard");
+  if (!target) {
+    return;
+  }
+
+  const navOffset = 80;
+  const top = target.getBoundingClientRect().top + window.scrollY - navOffset;
+  window.scrollTo({ top, behavior: "smooth" });
+}
+
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { walletAddress, walletReady, walletBusy, connect, disconnect } = useWallet();
@@ -34,6 +45,10 @@ export default function Navbar() {
         return;
       }
       await connect();
+      if (window.location.hash !== "#dashboard") {
+        window.location.hash = "dashboard";
+      }
+      scrollToDashboard();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown wallet error.";
       window.alert(`Wallet action failed: ${message}`);
