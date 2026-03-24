@@ -23,4 +23,7 @@ interface PhantomProvider {
 
 interface Window {
   solana?: PhantomProvider;
+  phantom?: {
+    solana?: PhantomProvider;
+  };
 }

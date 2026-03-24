@@ -20,15 +20,24 @@ export default function Navbar() {
   ];
 
   async function handleWalletClick() {
-    if (!walletReady) {
-      window.open("https://phantom.app/download", "_blank", "noopener,noreferrer");
-      return;
+    try {
+      if (!walletReady) {
+        const downloadUrl = "https://phantom.app/download";
+        const popup = window.open(downloadUrl, "_blank", "noopener,noreferrer");
+        if (!popup) {
+          window.location.href = downloadUrl;
+        }
+        return;
+      }
+      if (walletAddress) {
+        await disconnect();
+        return;
+      }
+      await connect();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown wallet error.";
+      window.alert(`Wallet action failed: ${message}`);
     }
-    if (walletAddress) {
-      await disconnect();
-      return;
-    }
-    await connect();
   }
 
   const walletLabel = useMemo(() => {

@@ -15,8 +15,9 @@ function getPhantomProvider() {
   if (typeof window === "undefined") {
     return null;
   }
-  const provider = window.solana;
-  if (!provider || !provider.isPhantom) {
+  // Prefer the explicit Phantom namespace when available.
+  const provider = window.phantom?.solana ?? window.solana;
+  if (!provider || !provider.isPhantom || typeof provider.connect !== "function") {
     return null;
   }
   return provider;
