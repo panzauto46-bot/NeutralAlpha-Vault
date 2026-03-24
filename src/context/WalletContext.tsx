@@ -56,10 +56,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     provider.on?.("disconnect", onDisconnect);
     provider.on?.("accountChanged", onAccountChanged);
 
-    // Auto-connect disabled: user must click "Connect Wallet" manually.
-    if (provider.publicKey) {
-      setWalletAddress(provider.publicKey.toString());
-    }
+    // Auto-connect fully disabled: wallet address only set after user clicks Connect.
 
     return () => {
       provider.off?.("connect", onConnect);
