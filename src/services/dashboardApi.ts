@@ -37,6 +37,13 @@ export function postDeposit(amountUsd: number, wallet = "guest") {
   });
 }
 
+export function postWithdraw(amountUsd: number, wallet = "guest") {
+  return fetchJson<VaultMutationResponse>("/vault/withdraw", {
+    method: "POST",
+    body: JSON.stringify({ amountUsd, wallet }),
+  });
+}
+
 export function fetchVaultActivity() {
   return fetchJson<{ items: VaultActivityItem[] }>("/vault/activity");
 }

@@ -26,7 +26,12 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
 } from "lucide-react";
-import { fetchDashboardSnapshot, fetchVaultActivity, postDeposit } from "@/services/dashboardApi";
+import {
+  fetchDashboardSnapshot,
+  fetchVaultActivity,
+  postDeposit,
+  postWithdraw,
+} from "@/services/dashboardApi";
 import { getFallbackSnapshot } from "@/services/dashboardFallback";
 import type { AiAction, DashboardSnapshot, VaultActivityItem } from "@/types/dashboard";
 import { useWallet } from "@/context/WalletContext";
@@ -35,6 +40,7 @@ type DataMode = "live" | "fallback";
 
 const POLL_INTERVAL_MS = 15_000;
 const QUICK_AMOUNTS_USD = [25, 100, 250];
+const LOCK_PERIOD_MS = 90 * 24 * 60 * 60 * 1_000;
 
 const SIGNAL_STYLES: Record<AiAction, { panel: string; text: string }> = {
   HOLD: {
@@ -86,6 +92,17 @@ function formatActivityDate(iso: string) {
   });
 }
 
+function formatCountdown(ms: number) {
+  if (ms <= 0) {
+    return "Unlocked";
+  }
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  return `${days}d ${hours}h ${minutes}m`;
+}
+
 function getFallbackActivity(walletAddress: string | null): VaultActivityItem[] {
   const now = Date.now();
   const wallet = walletAddress ?? "guest";
@@ -116,7 +133,11 @@ export default function Dashboard() {
   const [depositAmount, setDepositAmount] = useState("");
   const [depositPending, setDepositPending] = useState(false);
   const [depositMessage, setDepositMessage] = useState<string | null>(null);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawPending, setWithdrawPending] = useState(false);
+  const [withdrawMessage, setWithdrawMessage] = useState<string | null>(null);
   const [activityItems, setActivityItems] = useState<VaultActivityItem[]>([]);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const loadSnapshot = useCallback(async () => {
     try {
@@ -151,6 +172,15 @@ export default function Dashboard() {
       window.clearInterval(interval);
     };
   }, [loadActivity, loadSnapshot]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowTs(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const metrics = useMemo(
     () => [
@@ -196,6 +226,45 @@ export default function Dashboard() {
   const signalStyle = SIGNAL_STYLES[snapshot.signal.action];
   const liveFundingEntries = Object.entries(snapshot.liveFunding);
   const recentActivity = useMemo(() => activityItems.slice(0, 6), [activityItems]);
+  const walletKey = walletAddress ?? "guest";
+
+  const walletActivity = useMemo(
+    () => activityItems.filter((item) => item.wallet === walletKey),
+    [activityItems, walletKey],
+  );
+
+  const estimatedShares = useMemo(() => {
+    const netAmount = walletActivity.reduce((acc, item) => {
+      return acc + (item.action === "DEPOSIT" ? item.amountUsd : -item.amountUsd);
+    }, 0);
+    return Math.max(0, netAmount);
+  }, [walletActivity]);
+
+  const lastDepositAt = useMemo(() => {
+    const deposits = walletActivity.filter((item) => item.action === "DEPOSIT");
+    if (deposits.length === 0) {
+      return null;
+    }
+    return deposits.reduce((latest, item) => (item.at > latest ? item.at : latest), deposits[0].at);
+  }, [walletActivity]);
+
+  const unlockTs = useMemo(() => {
+    if (!lastDepositAt) {
+      return null;
+    }
+    return new Date(lastDepositAt).getTime() + LOCK_PERIOD_MS;
+  }, [lastDepositAt]);
+
+  const lockRemainingMs = unlockTs ? unlockTs - nowTs : 0;
+  const isLocked = Boolean(unlockTs && lockRemainingMs > 0);
+
+  const quickWithdrawOptions = useMemo(() => {
+    if (estimatedShares <= 0) {
+      return [];
+    }
+    const values = [0.25, 0.5, 1].map((factor) => Number((estimatedShares * factor).toFixed(2)));
+    return [...new Set(values)].filter((value) => value > 0);
+  }, [estimatedShares]);
 
   async function handleDepositClick() {
     if (snapshot.risk.depositPaused || snapshot.risk.emergencyState) {
@@ -211,7 +280,7 @@ export default function Dashboard() {
     setDepositMessage(null);
 
     try {
-      const result = await postDeposit(amount, walletAddress ?? "guest");
+      const result = await postDeposit(amount, walletKey);
       setDepositMessage(result.message);
       setDepositAmount("");
       await Promise.all([loadSnapshot(), loadActivity()]);
@@ -219,6 +288,35 @@ export default function Dashboard() {
       setDepositMessage("Deposit failed. API may be offline.");
     } finally {
       setDepositPending(false);
+    }
+  }
+
+  async function handleWithdrawClick() {
+    if (isLocked) {
+      setWithdrawMessage("Position masih dalam lock period 3 bulan.");
+      return;
+    }
+    const amount = Number(withdrawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setWithdrawMessage("Enter a valid withdraw amount.");
+      return;
+    }
+    if (amount > estimatedShares) {
+      setWithdrawMessage("Withdraw amount exceeds your estimated shares.");
+      return;
+    }
+
+    setWithdrawPending(true);
+    setWithdrawMessage(null);
+    try {
+      const result = await postWithdraw(amount, walletKey);
+      setWithdrawMessage(result.message);
+      setWithdrawAmount("");
+      await Promise.all([loadSnapshot(), loadActivity()]);
+    } catch {
+      setWithdrawMessage("Withdraw failed. API may be offline.");
+    } finally {
+      setWithdrawPending(false);
     }
   }
 
@@ -314,6 +412,29 @@ export default function Dashboard() {
               <p>USDC price: ${snapshot.risk.usdcPrice.toFixed(4)}</p>
               <p>7d drawdown: {formatPercent(snapshot.risk.drawdown7dPct, 2)}</p>
             </div>
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
+              <p className="text-xs text-slate-500 mb-2">Your Position</p>
+              <div className="space-y-1 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Estimated Shares</span>
+                  <span className="text-white font-semibold">{formatUsd(estimatedShares)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Lock Status</span>
+                  <span className={isLocked ? "text-yellow-300" : "text-green-300"}>
+                    {isLocked ? `Locked (${formatCountdown(lockRemainingMs)})` : "Unlocked"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Unlock At</span>
+                  <span className="text-slate-300">
+                    {unlockTs ? new Date(unlockTs).toLocaleString() : "No active lock"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">Deposit</p>
             <div className="relative mb-3">
               <input
                 type="number"
@@ -357,8 +478,47 @@ export default function Dashboard() {
                     : "Deposit USDC"}
             </button>
             {depositMessage ? <p className="text-xs text-slate-400 text-center mt-3">{depositMessage}</p> : null}
+
+            <div className="my-4 border-t border-white/10" />
+
+            <p className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">Withdraw</p>
+            <div className="relative mb-3">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={withdrawAmount}
+                onChange={(event) => setWithdrawAmount(event.target.value)}
+                placeholder="0.00"
+                className="w-full p-4 pr-24 rounded-xl bg-white/5 border border-white/10 text-white text-xl font-medium placeholder:text-slate-600 focus:outline-none focus:border-blue-300/50"
+              />
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <span className="text-white font-medium">USDC</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              {quickWithdrawOptions.map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  onClick={() => setWithdrawAmount(String(amount))}
+                  className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-slate-300 hover:text-white hover:border-blue-300/40 hover:bg-blue-500/10 transition-colors"
+                >
+                  {formatUsd(amount)}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => void handleWithdrawClick()}
+              disabled={withdrawPending || isLocked || estimatedShares <= 0}
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold hover:from-blue-400 hover:to-cyan-400 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isLocked ? "Locked" : withdrawPending ? "Processing..." : "Withdraw USDC"}
+            </button>
+            {withdrawMessage ? <p className="text-xs text-slate-400 text-center mt-3">{withdrawMessage}</p> : null}
+
             <p className="text-xs text-slate-500 text-center mt-3">
-              By depositing, you agree to the 3-month rolling lock period.
+              3-month rolling lock is enforced per latest deposit.
             </p>
           </motion.div>
         </div>
