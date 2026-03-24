@@ -1,5 +1,6 @@
 import Dashboard from "@/components/Dashboard";
 import Navbar from "@/components/Navbar";
+import AppErrorBoundary from "@/components/AppErrorBoundary";
 import { useWallet } from "@/context/WalletContext";
 import { Link } from "react-router-dom";
 
@@ -11,7 +12,9 @@ export default function DashboardPage() {
       <Navbar />
       <main className="pt-16">
         {walletAddress ? (
-          <Dashboard />
+          <AppErrorBoundary fallbackTitle="Dashboard crash detected">
+            <Dashboard />
+          </AppErrorBoundary>
         ) : (
           <section className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4">
             <div className="max-w-xl w-full glass rounded-3xl p-8 text-center border border-white/10">

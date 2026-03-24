@@ -104,6 +104,8 @@ export interface SentVaultTx {
 const TOKEN_DECIMALS = 6;
 const COMMITMENT: Commitment = "confirmed";
 const FINALITY: Finality = "confirmed";
+const TEXT_ENCODER = new TextEncoder();
+const SYSTEM_PROGRAM_ADDRESS = "11111111111111111111111111111111";
 const IX_DEPOSIT = Uint8Array.from([242, 35, 198, 137, 82, 225, 242, 182]);
 const IX_WITHDRAW = Uint8Array.from([183, 18, 70, 156, 148, 109, 161, 34]);
 const IX_DRIFT_HEDGE = Uint8Array.from([174, 177, 138, 131, 214, 115, 86, 234]);
@@ -170,15 +172,15 @@ function ensureConfig(): RuntimeConfig {
 
 function deriveVaultAccounts(programId: PublicKey, usdcMint: PublicKey, owner: PublicKey): VaultAccounts {
   const [vaultState] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), usdcMint.toBuffer()],
+    [TEXT_ENCODER.encode("vault"), usdcMint.toBuffer()],
     programId,
   );
   const [vaultAuthority] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault_authority"), vaultState.toBuffer()],
+    [TEXT_ENCODER.encode("vault_authority"), vaultState.toBuffer()],
     programId,
   );
   const [userPosition] = PublicKey.findProgramAddressSync(
-    [Buffer.from("position"), vaultState.toBuffer(), owner.toBuffer()],
+    [TEXT_ENCODER.encode("position"), vaultState.toBuffer(), owner.toBuffer()],
     programId,
   );
   return { vaultState, vaultAuthority, userPosition };
@@ -263,11 +265,12 @@ function decodeUserPosition(data: Uint8Array): DecodedUserPosition {
   };
 }
 
-function encodeAmountInstruction(discriminator: Uint8Array, amount: bigint) {
-  const payload = Buffer.alloc(16);
-  Buffer.from(discriminator).copy(payload, 0);
-  payload.writeBigUInt64LE(amount, 8);
-  return payload;
+function encodeAmountInstruction(discriminator: Uint8Array, amount: bigint): Buffer {
+  const payload = new Uint8Array(16);
+  payload.set(discriminator, 0);
+  const view = new DataView(payload.buffer);
+  view.setBigUint64(8, amount, true);
+  return payload as unknown as Buffer;
 }
 
 async function createAtaIxIfMissing(
@@ -335,28 +338,37 @@ function decodeAmountFromInstructionData(dataBase58: string) {
     return null;
   }
   const discriminator = decoded.subarray(0, 8);
-  if (Buffer.from(discriminator).equals(Buffer.from(IX_DEPOSIT))) {
+  if (isSameBytes(discriminator, IX_DEPOSIT)) {
     if (decoded.length < 16) return null;
     return { action: "DEPOSIT" as const, amountBaseUnits: readU64LE(decoded, 8) };
   }
-  if (Buffer.from(discriminator).equals(Buffer.from(IX_WITHDRAW))) {
+  if (isSameBytes(discriminator, IX_WITHDRAW)) {
     if (decoded.length < 16) return null;
     return { action: "WITHDRAW" as const, amountBaseUnits: readU64LE(decoded, 8) };
   }
-  if (
-    Buffer.from(discriminator).equals(Buffer.from(IX_DRIFT_HEDGE)) ||
-    Buffer.from(discriminator).equals(Buffer.from(IX_JUPITER_SWAP))
-  ) {
+  if (isSameBytes(discriminator, IX_DRIFT_HEDGE) || isSameBytes(discriminator, IX_JUPITER_SWAP)) {
     return { action: "REBALANCE" as const, amountBaseUnits: 0n };
   }
   return null;
 }
 
+function isSameBytes(a: Uint8Array, b: Uint8Array) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function getInstructionBundle(tx: {
   transaction: {
     message: {
-      accountKeys?: Array<{ toBase58(): string }>;
-      staticAccountKeys?: Array<{ toBase58(): string }>;
+      accountKeys?: Array<{ toBase58(): string } | string>;
+      staticAccountKeys?: Array<{ toBase58(): string } | string>;
       instructions?: Array<{ programIdIndex: number; accounts: number[]; data: string }>;
       compiledInstructions?: Array<{ programIdIndex: number; accounts: number[]; data: string }>;
     };
@@ -364,7 +376,9 @@ function getInstructionBundle(tx: {
 }) {
   const message = tx.transaction.message;
   const accountKeysRaw = message.staticAccountKeys ?? message.accountKeys ?? [];
-  const accountKeys = accountKeysRaw.map((key) => key.toBase58());
+  const accountKeys = accountKeysRaw.map((key) =>
+    typeof key === "string" ? key : key.toBase58(),
+  );
   const instructions = message.compiledInstructions ?? message.instructions ?? [];
   return { accountKeys, instructions };
 }
@@ -383,7 +397,9 @@ export function loadVaultIdl() {
 
 export async function fetchOnChainSnapshot(walletAddress: string | null): Promise<OnChainSnapshot> {
   const { connection, programId, usdcMint } = ensureConfig();
-  const owner = walletAddress ? new PublicKey(walletAddress) : PublicKey.default;
+  const owner = walletAddress
+    ? new PublicKey(walletAddress)
+    : new PublicKey(SYSTEM_PROGRAM_ADDRESS);
   const vaultAccounts = deriveVaultAccounts(programId, usdcMint, owner);
 
   const vaultStateInfo = await connection.getAccountInfo(vaultAccounts.vaultState, COMMITMENT);
