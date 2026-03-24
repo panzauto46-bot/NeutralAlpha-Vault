@@ -365,6 +365,12 @@ function isSameBytes(a: Uint8Array, b: Uint8Array) {
 }
 
 function getInstructionBundle(tx: {
+  meta?: {
+    loadedAddresses?: {
+      writable?: Array<{ toBase58(): string } | string>;
+      readonly?: Array<{ toBase58(): string } | string>;
+    };
+  };
   transaction: {
     message: {
       accountKeys?: Array<{ toBase58(): string } | string>;
@@ -375,8 +381,11 @@ function getInstructionBundle(tx: {
   };
 }) {
   const message = tx.transaction.message;
-  const accountKeysRaw = message.staticAccountKeys ?? message.accountKeys ?? [];
-  const accountKeys = accountKeysRaw.map((key) =>
+  const staticAccountKeysRaw = message.staticAccountKeys ?? message.accountKeys ?? [];
+  const loadedWritableRaw = tx.meta?.loadedAddresses?.writable ?? [];
+  const loadedReadonlyRaw = tx.meta?.loadedAddresses?.readonly ?? [];
+  const allAccountKeysRaw = [...staticAccountKeysRaw, ...loadedWritableRaw, ...loadedReadonlyRaw];
+  const accountKeys = allAccountKeysRaw.map((key) =>
     typeof key === "string" ? key : key.toBase58(),
   );
   const instructions = message.compiledInstructions ?? message.instructions ?? [];
@@ -591,43 +600,47 @@ export async function fetchOnChainActivity(limit = 20, walletFilter?: string): P
 
   const transactions = await Promise.all(
     signatures.map(async ({ signature, blockTime }) => {
-      const tx = await connection.getTransaction(signature, {
-        commitment: FINALITY,
-        maxSupportedTransactionVersion: 0,
-      });
-      if (!tx) {
+      try {
+        const tx = await connection.getTransaction(signature, {
+          commitment: FINALITY,
+          maxSupportedTransactionVersion: 0,
+        });
+        if (!tx) {
+          return null;
+        }
+
+        const { accountKeys, instructions } = getInstructionBundle(tx as never);
+        const programIx = instructions.find((ix) => accountKeys[ix.programIdIndex] === programId.toBase58());
+        if (!programIx) {
+          return null;
+        }
+
+        const decoded = decodeAmountFromInstructionData(programIx.data);
+        if (!decoded) {
+          return null;
+        }
+
+        const ownerAccountPosition = decoded.action === "REBALANCE" ? 2 : 7;
+        const depositorKeyIndex = programIx.accounts[ownerAccountPosition];
+        const wallet = typeof depositorKeyIndex === "number" ? accountKeys[depositorKeyIndex] ?? "unknown" : "unknown";
+        if (walletFilter && wallet !== walletFilter) {
+          return null;
+        }
+
+        const amountUsd = fromBaseUnits(decoded.amountBaseUnits);
+        return {
+          id: signature,
+          action: decoded.action as ActivityAction,
+          amountUsd,
+          wallet,
+          at: new Date((blockTime ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+          signature,
+          explorerUrl: buildSolscanTxUrl(signature),
+          source: "onchain" as const,
+        };
+      } catch {
         return null;
       }
-
-      const { accountKeys, instructions } = getInstructionBundle(tx as never);
-      const programIx = instructions.find((ix) => accountKeys[ix.programIdIndex] === programId.toBase58());
-      if (!programIx) {
-        return null;
-      }
-
-      const decoded = decodeAmountFromInstructionData(programIx.data);
-      if (!decoded) {
-        return null;
-      }
-
-      const ownerAccountPosition = decoded.action === "REBALANCE" ? 2 : 7;
-      const depositorKeyIndex = programIx.accounts[ownerAccountPosition];
-      const wallet = typeof depositorKeyIndex === "number" ? accountKeys[depositorKeyIndex] ?? "unknown" : "unknown";
-      if (walletFilter && wallet !== walletFilter) {
-        return null;
-      }
-
-      const amountUsd = fromBaseUnits(decoded.amountBaseUnits);
-      return {
-        id: signature,
-        action: decoded.action as ActivityAction,
-        amountUsd,
-        wallet,
-        at: new Date((blockTime ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
-        signature,
-        explorerUrl: buildSolscanTxUrl(signature),
-        source: "onchain" as const,
-      };
     }),
   );
 

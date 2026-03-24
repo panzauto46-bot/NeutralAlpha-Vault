@@ -45,6 +45,12 @@ import {
   type OnChainSnapshot,
 } from "@/services/vaultProgram";
 import { cn } from "@/utils/cn";
+import {
+  VAULT_PROGRAM_ID,
+  USDC_MINT,
+  buildSolscanAccountUrl,
+  buildSolscanTxUrl,
+} from "@/config/network";
 
 type DataMode = "live" | "fallback";
 
@@ -153,6 +159,7 @@ export default function Dashboard() {
 
   const [onChainSnapshot, setOnChainSnapshot] = useState<OnChainSnapshot | null>(null);
   const [onChainStatus, setOnChainStatus] = useState("On-chain sync idle.");
+  const [activityStatus, setActivityStatus] = useState("Activity sync idle.");
 
   const [depositAmount, setDepositAmount] = useState("");
   const [depositPending, setDepositPending] = useState(false);
@@ -189,20 +196,20 @@ export default function Dashboard() {
   }, []);
 
   const loadOnChain = useCallback(async () => {
-    if (!walletAddress || !isOnChainConfigured()) {
+    if (!isOnChainConfigured()) {
       setOnChainSnapshot(null);
-      setOnChainStatus(
-        isOnChainConfigured()
-          ? "Connect wallet to sync on-chain vault data."
-          : "Set VITE_VAULT_PROGRAM_ID and VITE_USDC_MINT to enable on-chain mode.",
-      );
+      setOnChainStatus("Set VITE_VAULT_PROGRAM_ID and VITE_USDC_MINT to enable on-chain mode.");
       return;
     }
 
     try {
       const next = await fetchOnChainSnapshot(walletAddress);
       setOnChainSnapshot(next);
-      setOnChainStatus("On-chain vault state synced.");
+      setOnChainStatus(
+        walletAddress
+          ? "On-chain vault + wallet state synced."
+          : "On-chain vault state synced (read-only mode).",
+      );
     } catch {
       setOnChainSnapshot(null);
       setOnChainStatus("On-chain RPC unavailable. Using fallback data.");
@@ -214,17 +221,24 @@ export default function Dashboard() {
       try {
         const chainItems = await fetchOnChainActivity(25);
         setActivityItems(chainItems);
+        setActivityStatus(
+          chainItems.length > 0
+            ? "On-chain activity synced."
+            : "On-chain activity synced (no tx found yet).",
+        );
         return;
       } catch {
-        // Continue to API/fallback.
+        setActivityStatus("On-chain activity fetch failed. Trying API fallback.");
       }
     }
 
     try {
       const payload = await fetchVaultActivity();
       setActivityItems(payload.items.map((item) => ({ ...item, source: "api" })));
+      setActivityStatus("Showing API fallback activity.");
     } catch {
       setActivityItems(getFallbackActivity(walletAddress));
+      setActivityStatus("Showing local fallback activity dataset.");
     }
   }, [walletAddress]);
 
@@ -344,6 +358,40 @@ export default function Dashboard() {
   const signalStyle = SIGNAL_STYLES[snapshot.signal.action];
   const liveFundingEntries = Object.entries(snapshot.liveFunding);
   const recentActivity = useMemo(() => activityItems.slice(0, 6), [activityItems]);
+  const latestExplorerActivity = useMemo(
+    () => recentActivity.find((item) => Boolean(item.explorerUrl)),
+    [recentActivity],
+  );
+
+  const verificationLinks = useMemo(
+    () => [
+      {
+        label: "Program ID",
+        value: VAULT_PROGRAM_ID,
+      },
+      {
+        label: "USDC Mint",
+        value: USDC_MINT,
+      },
+      {
+        label: "Vault State",
+        value: onChainSnapshot?.vaultStateAddress ?? null,
+      },
+      {
+        label: "USDC Vault",
+        value: onChainSnapshot?.usdcVaultAddress ?? null,
+      },
+      {
+        label: "Share Mint",
+        value: onChainSnapshot?.shareMintAddress ?? null,
+      },
+      {
+        label: "Latest Tx",
+        value: latestTx?.signature ?? latestExplorerActivity?.signature ?? null,
+      },
+    ],
+    [latestExplorerActivity?.signature, latestTx?.signature, onChainSnapshot?.shareMintAddress, onChainSnapshot?.usdcVaultAddress, onChainSnapshot?.vaultStateAddress],
+  );
 
   async function handleDepositClick() {
     if (snapshot.risk.depositPaused || snapshot.risk.emergencyState) {
@@ -461,7 +509,64 @@ export default function Dashboard() {
                 <span className={`w-2 h-2 rounded-full ${onChainSnapshot ? "bg-emerald-400" : "bg-slate-500"}`} />
                 <span className="text-slate-300">{onChainStatus}</span>
               </div>
+              <div className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 h-fit">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    activityStatus.includes("On-chain") ? "bg-emerald-400" : "bg-yellow-400"
+                  }`}
+                />
+                <span className="text-slate-300">{activityStatus}</span>
+              </div>
             </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="glass rounded-2xl p-5 mb-8 border border-emerald-500/20"
+        >
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-white font-semibold text-lg">On-Chain Verification</h3>
+              <p className="text-sm text-slate-400">
+                Direct links for judges to verify vault accounts and latest transactions on Solscan.
+              </p>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {verificationLinks.map((item) => {
+              if (!item.value) {
+                return (
+                  <div key={item.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-xs text-slate-500">{item.label}</p>
+                    <p className="text-sm text-slate-400">Not available</p>
+                  </div>
+                );
+              }
+
+              const href = buildSolscanAccountUrl(item.value);
+              const isLatestTx = item.label === "Latest Tx";
+              const txHref = latestTx?.explorerUrl ?? latestExplorerActivity?.explorerUrl;
+              const finalHref = isLatestTx ? (txHref ?? buildSolscanTxUrl(item.value)) : href;
+
+              return (
+                <a
+                  key={item.label}
+                  href={finalHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl border border-white/10 bg-white/5 p-3 hover:border-emerald-500/40 transition-colors"
+                >
+                  <p className="text-xs text-slate-500">{item.label}</p>
+                  <p className="text-sm text-emerald-300 font-mono break-all inline-flex items-center gap-1">
+                    {item.value}
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </p>
+                </a>
+              );
+            })}
           </div>
         </motion.div>
 
