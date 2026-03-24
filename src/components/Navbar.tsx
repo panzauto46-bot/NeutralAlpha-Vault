@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Menu, X, Wallet, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/context/WalletContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { NETWORK_LABEL, NETWORK_PILL_CLASS } from "@/config/network";
 
 function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -28,9 +29,7 @@ export default function Navbar() {
 
   const navLinks = isDashboardRoute
     ? [
-        { label: "Landing", href: "/", route: true },
         { label: "Dashboard", href: "#dashboard", route: false },
-        { label: "Docs", href: "/#docs", route: true },
       ]
     : [
         { label: "Dashboard", href: "/dashboard", route: true },
@@ -39,6 +38,10 @@ export default function Navbar() {
         { label: "Performance", href: "#performance", route: false },
         { label: "Docs", href: "#docs", route: false },
       ];
+
+  useEffect(() => {
+    setIsOpen(false);
+  }, [location.pathname]);
 
   async function handleWalletClick() {
     try {
@@ -108,7 +111,11 @@ export default function Navbar() {
                 <Link
                   key={link.label}
                   to={link.href}
-                  className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                  className={`px-4 py-2 text-sm rounded-lg transition-all ${
+                    location.pathname === link.href
+                      ? "bg-white/10 text-white"
+                      : "text-slate-300 hover:text-white hover:bg-white/5"
+                  }`}
                 >
                   {link.label}
                 </Link>
@@ -124,7 +131,10 @@ export default function Navbar() {
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className={`hidden sm:inline-flex items-center px-3 py-1 rounded-full text-xs border ${NETWORK_PILL_CLASS}`}>
+              {NETWORK_LABEL}
+            </div>
             <button
               onClick={() => void handleWalletClick()}
               disabled={walletBusy}

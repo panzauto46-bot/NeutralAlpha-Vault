@@ -31,6 +31,7 @@ import { useWallet } from "@/context/WalletContext";
 type DataMode = "live" | "fallback";
 
 const POLL_INTERVAL_MS = 15_000;
+const QUICK_AMOUNTS_USD = [25, 100, 250];
 
 const SIGNAL_STYLES: Record<AiAction, { panel: string; text: string }> = {
   HOLD: {
@@ -467,6 +468,7 @@ export default function Dashboard() {
                 <input
                   type="number"
                   min="0"
+                  step="0.01"
                   value={depositAmount}
                   onChange={(event) => setDepositAmount(event.target.value)}
                   placeholder="0.00"
@@ -478,6 +480,18 @@ export default function Dashboard() {
                   </div>
                   <span className="text-white font-medium">USDC</span>
                 </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {QUICK_AMOUNTS_USD.map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => setDepositAmount(String(amount))}
+                    className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-slate-300 hover:text-white hover:border-green-500/40 hover:bg-green-500/10 transition-colors"
+                  >
+                    ${amount}
+                  </button>
+                ))}
               </div>
               <button
                 onClick={() => void handleDepositClick()}

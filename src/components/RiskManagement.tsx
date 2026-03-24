@@ -9,7 +9,7 @@ export default function RiskManagement() {
     {
       risk: 'Delta Drift',
       mitigation: 'Auto-rebalance via AI engine',
-      trigger: 'Delta > ±2% NAV',
+      trigger: 'Delta > +/-2% NAV',
       status: 'active',
       icon: Activity,
     },
@@ -54,7 +54,7 @@ export default function RiskManagement() {
     { label: 'Max Single Asset Exposure', value: '60%', description: 'of NAV' },
     { label: 'Max Leverage (Drift)', value: '2x', description: 'conservative margin' },
     { label: 'Min Health Ratio', value: '1.5', description: 'target maintained' },
-    { label: 'Max Delta Drift', value: '±2%', description: 'before rebalance' },
+    { label: 'Max Delta Drift', value: '+/-2%', description: 'before rebalance' },
   ];
 
   const drawdownLimits = [
@@ -161,8 +161,8 @@ export default function RiskManagement() {
             className="glass rounded-2xl p-6"
           >
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 rounded-lg bg-purple-500/10">
-                <Gauge className="w-5 h-5 text-purple-400" />
+              <div className="p-2 rounded-lg bg-blue-500/10">
+                <Gauge className="w-5 h-5 text-blue-300" />
               </div>
               <h3 className="text-lg font-semibold text-white">Position Sizing</h3>
             </div>
@@ -173,7 +173,7 @@ export default function RiskManagement() {
                     <div className="text-white font-medium">{limit.label}</div>
                     <div className="text-xs text-slate-500">{limit.description}</div>
                   </div>
-                  <div className="text-2xl font-bold text-purple-400">{limit.value}</div>
+                  <div className="text-2xl font-bold text-blue-300">{limit.value}</div>
                 </div>
               ))}
             </div>
@@ -219,15 +219,15 @@ export default function RiskManagement() {
             <div className="mt-6 p-4 rounded-xl bg-white/5">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-slate-400">Health Ratio Range</span>
-                <span className="text-sm font-medium text-green-400">Current: 1.72</span>
+                <span className="text-sm font-medium text-green-400">Target: &gt;= 1.50</span>
               </div>
               <div className="relative h-4 bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 rounded-full">
                 <div 
                   className="absolute top-1/2 -translate-y-1/2 w-4 h-6 bg-white rounded shadow-lg border-2 border-green-400"
-                  style={{ left: 'calc(72% - 8px)' }}
+                  style={{ left: 'calc(75% - 8px)' }}
                 >
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-mono text-white bg-dark-700 px-2 py-1 rounded">
-                    1.72
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-mono text-white bg-dark-700 px-2 py-1 rounded whitespace-nowrap">
+                    target zone
                   </div>
                 </div>
               </div>
@@ -267,3 +267,4 @@ export default function RiskManagement() {
     </section>
   );
 }
+

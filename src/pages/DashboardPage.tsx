@@ -1,6 +1,7 @@
 import Dashboard from "@/components/Dashboard";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/context/WalletContext";
+import { Link } from "react-router-dom";
 
 export default function DashboardPage() {
   const { walletAddress, walletReady, walletBusy, connect } = useWallet();
@@ -31,10 +32,12 @@ export default function DashboardPage() {
           <Dashboard />
         ) : (
           <section className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4">
-            <div className="max-w-xl w-full glass rounded-2xl p-8 text-center">
+            <div className="max-w-xl w-full glass rounded-3xl p-8 text-center border border-white/10">
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">Private App Area</p>
               <h1 className="text-3xl font-bold text-white mb-3">Dashboard Locked</h1>
-              <p className="text-slate-400 mb-6">
-                Connect Phantom wallet dulu untuk membuka halaman dashboard.
+              <p className="text-slate-400 mb-6 leading-relaxed">
+                Connect Phantom wallet to continue. After connected, you can access deposit flow,
+                live dashboard telemetry, and risk status in one place.
               </p>
               <button
                 onClick={() => void handleConnectClick()}
@@ -47,6 +50,11 @@ export default function DashboardPage() {
                     ? "Connect Wallet"
                     : "Install Phantom"}
               </button>
+              <div className="mt-5 text-sm">
+                <Link to="/" className="text-slate-400 hover:text-white transition-colors">
+                  Back to Landing
+                </Link>
+              </div>
             </div>
           </section>
         )}

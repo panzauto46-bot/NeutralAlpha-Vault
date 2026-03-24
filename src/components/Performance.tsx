@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 import { TrendingUp, Calendar, Target, Percent } from 'lucide-react';
@@ -50,7 +50,7 @@ export default function Performance() {
             Yield Projections
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto">
-            Based on 12-month backtesting using historical Drift Protocol funding rate data (Mar 2024 – Mar 2025)
+            Based on 12-month backtesting using historical Drift Protocol funding rate data (Mar 2024 - Mar 2025)
           </p>
         </motion.div>
 
@@ -128,11 +128,9 @@ export default function Performance() {
                   />
                   <Bar dataKey="value" radius={[0, 8, 8, 0]}>
                     {comparisonData.map((entry, index) => (
-                      <motion.rect
+                      <Cell
                         key={index}
                         fill={entry.color}
-                        initial={{ width: 0 }}
-                        animate={{ width: 'auto' }}
                       />
                     ))}
                   </Bar>
@@ -209,10 +207,11 @@ export default function Performance() {
         >
           <p className="text-xs text-slate-500">
             All projections are based on historical backtesting and do not guarantee future returns. 
-            The vault targets a conservative 18%+ APY in base conditions — comfortably above the 10% minimum eligibility threshold.
+            The vault targets a conservative 18%+ APY in base conditions - comfortably above the 10% minimum eligibility threshold.
           </p>
         </motion.div>
       </div>
     </section>
   );
 }
+

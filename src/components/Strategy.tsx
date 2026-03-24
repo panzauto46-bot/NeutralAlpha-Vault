@@ -30,7 +30,7 @@ export default function Strategy() {
     {
       step: '04',
       title: 'Earn Funding',
-      description: 'Shorts earn funding payments when rate is positive — the majority of time in bull markets.',
+      description: 'Shorts earn funding payments when rate is positive - the majority of time in bull markets.',
       icon: TrendingUp,
       color: 'green',
     },
@@ -87,7 +87,7 @@ export default function Strategy() {
     <section id="strategy" className="py-20 relative">
       {/* Background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/3 right-0 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
@@ -98,9 +98,9 @@ export default function Strategy() {
           viewport={{ once: true }}
           className="text-center mb-16"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border border-purple-500/30 mb-6">
-            <Layers className="w-4 h-4 text-purple-400" />
-            <span className="text-sm text-purple-400 font-medium">Strategy Deep Dive</span>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border border-blue-500/30 mb-6">
+            <Layers className="w-4 h-4 text-blue-300" />
+            <span className="text-sm text-blue-300 font-medium">Strategy Deep Dive</span>
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
             How NeutralAlpha Works
@@ -159,7 +159,7 @@ export default function Strategy() {
 
           {/* Result */}
           <div className="mt-8 pt-8 border-t border-white/5 text-center">
-            <div className="inline-flex items-center gap-4 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-500/10 to-purple-500/10 border border-white/10">
+            <div className="inline-flex items-center gap-4 px-8 py-4 rounded-2xl bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-white/10">
               <Target className="w-6 h-6 text-green-400" />
               <div>
                 <div className="text-lg font-semibold text-white">Net Delta = 0</div>
@@ -223,7 +223,7 @@ export default function Strategy() {
               transition={{ delay: i * 0.1 }}
               className="glass rounded-2xl p-6 card-hover"
             >
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500/20 to-purple-500/20 flex items-center justify-center mb-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500/20 to-blue-500/20 flex items-center justify-center mb-4">
                 <feature.icon className="w-6 h-6 text-green-400" />
               </div>
               <h4 className="text-lg font-semibold text-white mb-2">{feature.title}</h4>
@@ -243,3 +243,4 @@ export default function Strategy() {
     </section>
   );
 }
+
