@@ -275,10 +275,13 @@ async function runAccounts() {
   }
 
   info(`vault_state_status: initialized`);
+  info(`authority: ${vaultState.authority.toBase58()}`);
   info(`usdc_vault: ${vaultState.usdcVault.toBase58()}`);
   info(`share_mint: ${vaultState.shareMint.toBase58()}`);
   info(`total_usdc: ${vaultState.totalUsdc.toString()}`);
   info(`total_shares: ${vaultState.totalShares.toString()}`);
+  info(`emergency_mode: ${vaultState.emergencyMode}`);
+  info(`payer_is_authority: ${vaultState.authority.equals(payer.publicKey)}`);
 }
 
 async function runInitialize() {
