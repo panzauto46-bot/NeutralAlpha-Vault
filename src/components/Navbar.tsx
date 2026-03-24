@@ -14,6 +14,7 @@ export default function Navbar() {
   const { walletAddress, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
   const location = useLocation();
   const isDashboardRoute = location.pathname === "/dashboard";
+  const brandRoute = isDashboardRoute ? "/dashboard" : "/";
 
   const navLinks = isDashboardRoute
     ? [
@@ -68,13 +69,13 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-3">
-            <Link to="/" className="relative">
+            <Link to={brandRoute} className="relative">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
                 <span className="text-xl font-bold text-white">N</span>
               </div>
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-pulse" />
             </Link>
-            <Link to="/" className="hidden sm:block">
+            <Link to={brandRoute} className="hidden sm:block">
               <h1 className="text-lg font-bold text-white">NeutralAlpha</h1>
               <p className="text-[10px] text-slate-400 -mt-1">VAULT</p>
             </Link>
