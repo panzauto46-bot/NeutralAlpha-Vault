@@ -1,4 +1,4 @@
-import type { DashboardSnapshot, VaultMutationResponse } from "@/types/dashboard";
+import type { DashboardSnapshot, VaultActivityItem, VaultMutationResponse } from "@/types/dashboard";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
@@ -35,4 +35,8 @@ export function postDeposit(amountUsd: number, wallet = "guest") {
     method: "POST",
     body: JSON.stringify({ amountUsd, wallet }),
   });
+}
+
+export function fetchVaultActivity() {
+  return fetchJson<{ items: VaultActivityItem[] }>("/vault/activity");
 }

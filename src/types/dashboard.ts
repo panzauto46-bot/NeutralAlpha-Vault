@@ -66,3 +66,11 @@ export interface VaultMutationResponse {
   message: string;
   tvlUsd: number;
 }
+
+export interface VaultActivityItem {
+  id: string;
+  action: "DEPOSIT" | "WITHDRAW";
+  amountUsd: number;
+  wallet: string;
+  at: string;
+}

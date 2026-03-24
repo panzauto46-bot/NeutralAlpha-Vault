@@ -22,10 +22,13 @@ import {
   DollarSign,
   RefreshCw,
   Clock,
+  Wallet,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from "lucide-react";
-import { fetchDashboardSnapshot, postDeposit } from "@/services/dashboardApi";
+import { fetchDashboardSnapshot, fetchVaultActivity, postDeposit } from "@/services/dashboardApi";
 import { getFallbackSnapshot } from "@/services/dashboardFallback";
-import type { AiAction, DashboardSnapshot } from "@/types/dashboard";
+import type { AiAction, DashboardSnapshot, VaultActivityItem } from "@/types/dashboard";
 import { useWallet } from "@/context/WalletContext";
 
 type DataMode = "live" | "fallback";
@@ -43,8 +46,8 @@ const SIGNAL_STYLES: Record<AiAction, { panel: string; text: string }> = {
     text: "text-yellow-400",
   },
   ROTATE_ASSET: {
-    panel: "bg-purple-500/10 border border-purple-500/20",
-    text: "text-purple-400",
+    panel: "bg-blue-500/10 border border-blue-500/20",
+    text: "text-blue-300",
   },
 };
 
@@ -69,6 +72,41 @@ function toLastUpdateLabel(isoDate: string) {
   return new Date(isoDate).toLocaleTimeString();
 }
 
+function shortWallet(value: string) {
+  if (!value) return "guest";
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+function formatActivityDate(iso: string) {
+  return new Date(iso).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getFallbackActivity(walletAddress: string | null): VaultActivityItem[] {
+  const now = Date.now();
+  const wallet = walletAddress ?? "guest";
+  return [
+    {
+      id: "fallback-1",
+      action: "DEPOSIT",
+      amountUsd: 100,
+      wallet,
+      at: new Date(now - 36 * 60 * 1000).toISOString(),
+    },
+    {
+      id: "fallback-2",
+      action: "WITHDRAW",
+      amountUsd: 40,
+      wallet,
+      at: new Date(now - 12 * 60 * 1000).toISOString(),
+    },
+  ];
+}
+
 export default function Dashboard() {
   const { walletAddress, walletReady } = useWallet();
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(() => getFallbackSnapshot());
@@ -78,31 +116,41 @@ export default function Dashboard() {
   const [depositAmount, setDepositAmount] = useState("");
   const [depositPending, setDepositPending] = useState(false);
   const [depositMessage, setDepositMessage] = useState<string | null>(null);
+  const [activityItems, setActivityItems] = useState<VaultActivityItem[]>([]);
 
   const loadSnapshot = useCallback(async () => {
     try {
       const nextSnapshot = await fetchDashboardSnapshot();
       setSnapshot(nextSnapshot);
       setDataMode("live");
-      setStatusLabel("Live data stream active.");
+      setStatusLabel("Live telemetry stream active.");
     } catch {
       setSnapshot(getFallbackSnapshot());
       setDataMode("fallback");
-      setStatusLabel("API unavailable. Showing fallback data.");
+      setStatusLabel("API unavailable. Showing fallback dataset.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  const loadActivity = useCallback(async () => {
+    try {
+      const payload = await fetchVaultActivity();
+      setActivityItems(payload.items);
+    } catch {
+      setActivityItems(getFallbackActivity(walletAddress));
+    }
+  }, [walletAddress]);
+
   useEffect(() => {
-    void loadSnapshot();
+    void Promise.all([loadSnapshot(), loadActivity()]);
     const interval = window.setInterval(() => {
-      void loadSnapshot();
+      void Promise.all([loadSnapshot(), loadActivity()]);
     }, POLL_INTERVAL_MS);
     return () => {
       window.clearInterval(interval);
     };
-  }, [loadSnapshot]);
+  }, [loadActivity, loadSnapshot]);
 
   const metrics = useMemo(
     () => [
@@ -147,6 +195,7 @@ export default function Dashboard() {
 
   const signalStyle = SIGNAL_STYLES[snapshot.signal.action];
   const liveFundingEntries = Object.entries(snapshot.liveFunding);
+  const recentActivity = useMemo(() => activityItems.slice(0, 6), [activityItems]);
 
   async function handleDepositClick() {
     if (snapshot.risk.depositPaused || snapshot.risk.emergencyState) {
@@ -165,7 +214,7 @@ export default function Dashboard() {
       const result = await postDeposit(amount, walletAddress ?? "guest");
       setDepositMessage(result.message);
       setDepositAmount("");
-      await loadSnapshot();
+      await Promise.all([loadSnapshot(), loadActivity()]);
     } catch {
       setDepositMessage("Deposit failed. API may be offline.");
     } finally {
@@ -174,75 +223,147 @@ export default function Dashboard() {
   }
 
   return (
-    <section id="dashboard" className="py-20 relative">
+    <section id="dashboard" className="relative pt-10 pb-16">
+      <div id="overview" className="absolute -top-24" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center mb-12"
+          className="mb-8"
         >
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">Live Vault Dashboard</h2>
-          <p className="text-slate-400 max-w-2xl mx-auto mb-4">
-            Real-time metrics and AI monitoring for complete transparency
-          </p>
-          <div className="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full border border-white/10 bg-white/5">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                dataMode === "live" ? "bg-green-400" : "bg-yellow-400"
-              }`}
-            />
-            <span className="text-slate-300">
-              {dataMode === "live" ? "Live API" : "Fallback Mode"} | {statusLabel}
-            </span>
-            {isLoading && <RefreshCw className="w-3 h-3 text-slate-400 animate-spin" />}
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500 mb-2">Application Dashboard</p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-white mb-2">Live Vault Dashboard</h2>
+              <p className="text-slate-400 max-w-2xl">
+                Operational view for vault metrics, user actions, and recent activity.
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 h-fit">
+              <span
+                className={`w-2 h-2 rounded-full ${dataMode === "live" ? "bg-green-400" : "bg-yellow-400"}`}
+              />
+              <span className="text-slate-300">
+                {dataMode === "live" ? "Live API" : "Fallback"} | {statusLabel}
+              </span>
+              {isLoading ? <RefreshCw className="w-3 h-3 text-slate-400 animate-spin" /> : null}
+            </div>
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {metrics.map((metric, i) => (
-            <motion.div
-              key={metric.label}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-              className="glass rounded-2xl p-6 card-hover"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2 rounded-lg bg-green-500/10">
-                  <metric.icon className="w-5 h-5 text-green-400" />
-                </div>
-                <span
-                  className={`text-xs font-medium px-2 py-1 rounded-full ${
-                    metric.positive
-                      ? "bg-green-500/10 text-green-400"
-                      : "bg-red-500/10 text-red-400"
-                  }`}
+        <div className="grid lg:grid-cols-3 gap-6 mb-8">
+          <div className="lg:col-span-2">
+            <div className="grid grid-cols-2 gap-4">
+              {metrics.map((metric, i) => (
+                <motion.div
+                  key={metric.label}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.08 }}
+                  className="glass rounded-2xl p-6 card-hover"
                 >
-                  {metric.change}
-                </span>
-              </div>
-              <div className="text-2xl sm:text-3xl font-bold text-white mb-1">{metric.value}</div>
-              <div className="text-sm text-slate-500">{metric.label}</div>
-            </motion.div>
-          ))}
-        </div>
-
-        {snapshot.risk.alerts.length > 0 && (
-          <div className="mb-8 p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10">
-            <div className="text-sm text-yellow-300 font-medium mb-2">Risk Alerts</div>
-            <div className="space-y-1">
-              {snapshot.risk.alerts.map((alert, index) => (
-                <p key={`${alert}-${index}`} className="text-xs text-yellow-100/90">
-                  {alert}
-                </p>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2 rounded-lg bg-green-500/10">
+                      <metric.icon className="w-5 h-5 text-green-400" />
+                    </div>
+                    <span
+                      className={`text-xs font-medium px-2 py-1 rounded-full ${
+                        metric.positive
+                          ? "bg-green-500/10 text-green-400"
+                          : "bg-red-500/10 text-red-400"
+                      }`}
+                    >
+                      {metric.change}
+                    </span>
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-bold text-white mb-1">{metric.value}</div>
+                  <div className="text-sm text-slate-500">{metric.label}</div>
+                </motion.div>
               ))}
             </div>
-          </div>
-        )}
 
-        <div className="grid lg:grid-cols-3 gap-6 mb-8">
+            {snapshot.risk.alerts.length > 0 ? (
+              <div className="mt-4 p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10">
+                <div className="text-sm text-yellow-300 font-medium mb-2">Risk Alerts</div>
+                <div className="space-y-1">
+                  {snapshot.risk.alerts.map((alert, index) => (
+                    <p key={`${alert}-${index}`} className="text-xs text-yellow-100/90">
+                      {alert}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <motion.div
+            id="actions"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="glass rounded-2xl p-6"
+          >
+            <div className="flex items-center gap-2 mb-5">
+              <Wallet className="w-5 h-5 text-green-400" />
+              <h3 className="text-lg font-semibold text-white">Vault Actions</h3>
+            </div>
+            <div className="mb-4 text-xs text-slate-500 space-y-1">
+              <p>Wallet: {walletAddress ? shortWallet(walletAddress) : walletReady ? "not connected" : "Phantom not detected"}</p>
+              <p>USDC price: ${snapshot.risk.usdcPrice.toFixed(4)}</p>
+              <p>7d drawdown: {formatPercent(snapshot.risk.drawdown7dPct, 2)}</p>
+            </div>
+            <div className="relative mb-3">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={depositAmount}
+                onChange={(event) => setDepositAmount(event.target.value)}
+                placeholder="0.00"
+                className="w-full p-4 pr-24 rounded-xl bg-white/5 border border-white/10 text-white text-xl font-medium placeholder:text-slate-600 focus:outline-none focus:border-green-500/50"
+              />
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold text-white">
+                  $
+                </div>
+                <span className="text-white font-medium">USDC</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              {QUICK_AMOUNTS_USD.map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  onClick={() => setDepositAmount(String(amount))}
+                  className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-slate-300 hover:text-white hover:border-green-500/40 hover:bg-green-500/10 transition-colors"
+                >
+                  ${amount}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => void handleDepositClick()}
+              disabled={depositPending || snapshot.risk.depositPaused || snapshot.risk.emergencyState}
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold hover:from-green-400 hover:to-green-500 transition-all shadow-lg shadow-green-500/25 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {snapshot.risk.emergencyState
+                ? "Emergency Mode"
+                : snapshot.risk.depositPaused
+                  ? "Deposits Paused"
+                  : depositPending
+                    ? "Processing..."
+                    : "Deposit USDC"}
+            </button>
+            {depositMessage ? <p className="text-xs text-slate-400 text-center mt-3">{depositMessage}</p> : null}
+            <p className="text-xs text-slate-500 text-center mt-3">
+              By depositing, you agree to the 3-month rolling lock period.
+            </p>
+          </motion.div>
+        </div>
+
+        <div id="analytics" className="grid lg:grid-cols-3 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -270,11 +391,7 @@ export default function Dashboard() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#32324a" />
                   <XAxis dataKey="date" stroke="#64748b" fontSize={12} />
-                  <YAxis
-                    stroke="#64748b"
-                    fontSize={12}
-                    tickFormatter={(v) => `$${(v / 1_000_000).toFixed(2)}M`}
-                  />
+                  <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `$${(v / 1_000_000).toFixed(2)}M`} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "#1a1a24",
@@ -300,15 +417,7 @@ export default function Dashboard() {
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={snapshot.allocation}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={70}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
+                  <Pie data={snapshot.allocation} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={4} dataKey="value">
                     {snapshot.allocation.map((entry) => (
                       <Cell key={entry.name} fill={entry.color} />
                     ))}
@@ -330,7 +439,7 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-6 mb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -348,11 +457,11 @@ export default function Dashboard() {
                   <span className="text-slate-400">SOL</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-purple-400" />
+                  <div className="w-3 h-3 rounded-full bg-blue-300" />
                   <span className="text-slate-400">BTC</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-blue-400" />
+                  <div className="w-3 h-3 rounded-full bg-cyan-300" />
                   <span className="text-slate-400">ETH</span>
                 </div>
               </div>
@@ -372,8 +481,8 @@ export default function Dashboard() {
                     formatter={(value) => [`${(Number(value) * 100).toFixed(3)}%`, ""]}
                   />
                   <Line type="monotone" dataKey="SOL" stroke="#22c55e" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="BTC" stroke="#a78bfa" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="ETH" stroke="#60a5fa" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="BTC" stroke="#93c5fd" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="ETH" stroke="#67e8f9" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -386,7 +495,7 @@ export default function Dashboard() {
             className="glass rounded-2xl p-6"
           >
             <div className="flex items-center gap-2 mb-6">
-              <Zap className="w-5 h-5 text-purple-400" />
+              <Zap className="w-5 h-5 text-blue-300" />
               <h3 className="text-lg font-semibold text-white">AI Signal Engine</h3>
             </div>
 
@@ -397,9 +506,7 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3 mb-6">
-              <div className="text-sm text-slate-400 mb-2">
-                Live Funding (8hr) | Active: {snapshot.signal.activeAsset}-PERP
-              </div>
+              <div className="text-sm text-slate-400 mb-2">Live Funding (8hr) | Active: {snapshot.signal.activeAsset}-PERP</div>
               {liveFundingEntries.map(([asset, rate]) => (
                 <div key={asset} className="flex items-center justify-between p-3 rounded-lg bg-white/5">
                   <span className="text-white font-medium">{asset}-PERP</span>
@@ -421,97 +528,42 @@ export default function Dashboard() {
         </div>
 
         <motion.div
+          id="activity"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="mt-8 glass rounded-2xl p-8"
+          className="glass rounded-2xl p-6"
         >
-          <div className="grid lg:grid-cols-2 gap-8 items-center">
-            <div>
-              <h3 className="text-2xl font-bold text-white mb-3">Start Earning Today</h3>
-              <p className="text-slate-400 mb-6">
-                Deposit USDC to start earning delta-neutral yield. Risk limits are enforced with
-                health ratio guardrails and automated signal-driven actions.
-              </p>
-              <div className="mb-5 text-xs text-slate-500 space-y-1">
-                <p>7d drawdown: {formatPercent(snapshot.risk.drawdown7dPct, 2)}</p>
-                <p>Peak drawdown: {formatPercent(snapshot.risk.drawdownFromPeakPct, 2)}</p>
-                <p className={snapshot.risk.usdcPrice < 0.99 ? "text-yellow-300" : ""}>
-                  USDC price: ${snapshot.risk.usdcPrice.toFixed(4)}
-                </p>
-                <p>
-                  Wallet:{" "}
-                  {walletAddress
-                    ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
-                    : walletReady
-                      ? "not connected"
-                      : "Phantom not detected"}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <Shield className="w-4 h-4 text-green-400" />
-                  <span>Delta Protected</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <RefreshCw className="w-4 h-4 text-purple-400" />
-                  <span>AI Rebalancing</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-slate-400">
-                  <Clock className="w-4 h-4 text-blue-400" />
-                  <span>3-Month Lock</span>
-                </div>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="relative">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={depositAmount}
-                  onChange={(event) => setDepositAmount(event.target.value)}
-                  placeholder="0.00"
-                  className="w-full p-4 pr-24 rounded-xl bg-white/5 border border-white/10 text-white text-xl font-medium placeholder:text-slate-600 focus:outline-none focus:border-green-500/50"
-                />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold text-white">
-                    $
-                  </div>
-                  <span className="text-white font-medium">USDC</span>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {QUICK_AMOUNTS_USD.map((amount) => (
-                  <button
-                    key={amount}
-                    type="button"
-                    onClick={() => setDepositAmount(String(amount))}
-                    className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-slate-300 hover:text-white hover:border-green-500/40 hover:bg-green-500/10 transition-colors"
-                  >
-                    ${amount}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={() => void handleDepositClick()}
-                disabled={depositPending || snapshot.risk.depositPaused || snapshot.risk.emergencyState}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold hover:from-green-400 hover:to-green-500 transition-all shadow-lg shadow-green-500/25 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {snapshot.risk.emergencyState
-                  ? "Emergency Mode"
-                  : snapshot.risk.depositPaused
-                    ? "Deposits Paused"
-                    : depositPending
-                      ? "Processing..."
-                      : "Deposit USDC"}
-              </button>
-              {depositMessage && <p className="text-xs text-slate-400 text-center">{depositMessage}</p>}
-              <p className="text-xs text-slate-500 text-center">
-                By depositing, you agree to the 3-month rolling lock period
-              </p>
-            </div>
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-semibold text-white">Recent Activity</h3>
+            <span className="text-xs text-slate-500">Last {recentActivity.length} records</span>
           </div>
+
+          {recentActivity.length > 0 ? (
+            <div className="space-y-3">
+              {recentActivity.map((item) => {
+                const isDeposit = item.action === "DEPOSIT";
+                return (
+                  <div key={item.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-lg grid place-items-center ${isDeposit ? "bg-green-500/15 text-green-400" : "bg-blue-500/15 text-blue-300"}`}>
+                        {isDeposit ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <p className="text-sm text-white font-medium">{item.action === "DEPOSIT" ? "Deposit" : "Withdraw"}</p>
+                        <p className="text-xs text-slate-500">{shortWallet(item.wallet)} | {formatActivityDate(item.at)}</p>
+                      </div>
+                    </div>
+                    <div className={`text-sm font-semibold ${isDeposit ? "text-green-400" : "text-blue-300"}`}>
+                      {isDeposit ? "+" : "-"}{formatUsd(item.amountUsd)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No activity yet.</p>
+          )}
         </motion.div>
       </div>
     </section>

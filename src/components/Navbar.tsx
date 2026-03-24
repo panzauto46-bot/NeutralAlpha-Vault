@@ -10,7 +10,7 @@ function shortAddress(address: string) {
 }
 
 function scrollToDashboard() {
-  const target = document.getElementById("dashboard");
+  const target = document.getElementById("overview") ?? document.getElementById("dashboard");
   if (!target) {
     return;
   }
@@ -29,7 +29,10 @@ export default function Navbar() {
 
   const navLinks = isDashboardRoute
     ? [
-        { label: "Dashboard", href: "#dashboard", route: false },
+        { label: "Overview", href: "#overview", route: false },
+        { label: "Actions", href: "#actions", route: false },
+        { label: "Analytics", href: "#analytics", route: false },
+        { label: "Activity", href: "#activity", route: false },
       ]
     : [
         { label: "Strategy", href: "#strategy", route: false },
@@ -61,8 +64,8 @@ export default function Navbar() {
         navigate("/dashboard");
         window.setTimeout(scrollToDashboard, 50);
       } else {
-        if (window.location.hash !== "#dashboard") {
-          window.location.hash = "dashboard";
+        if (window.location.hash !== "#overview") {
+          window.location.hash = "overview";
         }
         scrollToDashboard();
       }
