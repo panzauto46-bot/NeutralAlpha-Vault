@@ -31,6 +31,10 @@ import {
   fetchDashboardSnapshot,
   fetchVaultActivity,
 } from "@/services/dashboardApi";
+import {
+  fetchAiSignal,
+  type AiSignalResponse,
+} from "@/services/aiSignalApi";
 import type { AiAction, DashboardSnapshot, VaultActivityItem } from "@/types/dashboard";
 import { useWallet } from "@/context/WalletContext";
 import {
@@ -133,6 +137,8 @@ export default function Dashboard() {
   const [onChainSnapshot, setOnChainSnapshot] = useState<OnChainSnapshot | null>(null);
   const [onChainStatus, setOnChainStatus] = useState("On-chain sync idle.");
   const [activityStatus, setActivityStatus] = useState("Activity sync idle.");
+  const [aiSignal, setAiSignal] = useState<AiSignalResponse | null>(null);
+  const [aiSignalStatus, setAiSignalStatus] = useState("AI signal idle.");
 
   const [depositAmount, setDepositAmount] = useState("");
   const [depositPending, setDepositPending] = useState(false);
@@ -152,6 +158,19 @@ export default function Dashboard() {
   const [nowTs, setNowTs] = useState(() => Date.now());
 
   const onChainReady = walletReady && Boolean(walletAddress) && isOnChainConfigured();
+  const aiSignalInput = useMemo(
+    () => ({
+      healthRatio: snapshot?.overview.healthRatio ?? null,
+      deltaExposurePct: snapshot?.overview.deltaExposurePct ?? null,
+      drawdown7dPct: snapshot?.risk.drawdown7dPct ?? null,
+      usdcPrice: snapshot?.risk.usdcPrice ?? null,
+      emergencyMode: Boolean(onChainSnapshot?.emergencyMode || snapshot?.risk.emergencyState),
+      depositPaused: Boolean(onChainSnapshot?.paused || snapshot?.risk.depositPaused),
+      activeAsset: snapshot?.signal.activeAsset ?? "SOL",
+      liveFunding: snapshot?.liveFunding ?? null,
+    }),
+    [onChainSnapshot?.emergencyMode, onChainSnapshot?.paused, snapshot],
+  );
 
   const loadSnapshot = useCallback(async () => {
     try {
@@ -215,6 +234,27 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadAiSignal = useCallback(async () => {
+    if (!snapshot && !onChainSnapshot) {
+      setAiSignal(null);
+      setAiSignalStatus("Awaiting telemetry input.");
+      return;
+    }
+
+    try {
+      const next = await fetchAiSignal(aiSignalInput);
+      setAiSignal(next);
+      setAiSignalStatus(
+        next.source === "qwen"
+          ? `Qwen live${next.model ? ` (${next.model})` : ""}`
+          : "Rule engine fallback",
+      );
+    } catch {
+      setAiSignal(null);
+      setAiSignalStatus("AI endpoint unavailable.");
+    }
+  }, [aiSignalInput, onChainSnapshot, snapshot]);
+
   useEffect(() => {
     void Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
     const interval = window.setInterval(() => {
@@ -233,6 +273,10 @@ export default function Dashboard() {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    void loadAiSignal();
+  }, [loadAiSignal]);
 
   const walletKey = walletAddress ?? "guest";
 
@@ -334,13 +378,19 @@ export default function Dashboard() {
     [onChainSnapshot, snapshot],
   );
 
-  const signalStyle = snapshot
-    ? SIGNAL_STYLES[snapshot.signal.action]
+  const effectiveSignalAction = aiSignal?.action ?? snapshot?.signal.action ?? null;
+  const effectiveSignalReason = aiSignal?.reason ?? snapshot?.signal.reason ?? "No verified telemetry feed.";
+  const effectiveActiveAsset = aiSignal?.activeAsset ?? snapshot?.signal.activeAsset ?? null;
+  const effectiveLiveFunding = aiSignal?.liveFunding ?? snapshot?.liveFunding ?? null;
+  const signalUpdatedAt = aiSignal?.generatedAt ?? snapshot?.generatedAt ?? null;
+
+  const signalStyle = effectiveSignalAction
+    ? SIGNAL_STYLES[effectiveSignalAction]
     : {
         panel: "bg-slate-500/10 border border-white/10",
         text: "text-slate-300",
       };
-  const liveFundingEntries = snapshot ? Object.entries(snapshot.liveFunding) : [];
+  const liveFundingEntries = effectiveLiveFunding ? Object.entries(effectiveLiveFunding) : [];
   const recentActivity = useMemo(() => activityItems.slice(0, 6), [activityItems]);
   const latestExplorerActivity = useMemo(
     () => recentActivity.find((item) => Boolean(item.explorerUrl)),
@@ -951,20 +1001,21 @@ export default function Dashboard() {
               <Zap className="w-5 h-5 text-blue-300" />
               <h3 className="text-lg font-semibold text-white">AI Signal Engine</h3>
             </div>
+            <p className="text-xs text-slate-500 mb-4">{aiSignalStatus}</p>
 
             <div className={`p-4 rounded-xl mb-6 ${signalStyle.panel}`}>
               <div className="text-sm text-slate-400 mb-1">Current Signal</div>
               <div className={`text-2xl font-bold ${signalStyle.text}`}>
-                {snapshot ? snapshot.signal.action : "UNAVAILABLE"}
+                {effectiveSignalAction ?? "UNAVAILABLE"}
               </div>
               <div className="text-xs text-slate-400 mt-2">
-                {snapshot ? snapshot.signal.reason : "No verified telemetry feed."}
+                {effectiveSignalReason}
               </div>
             </div>
 
             <div className="space-y-3 mb-6">
               <div className="text-sm text-slate-400 mb-2">
-                Live Funding (8hr) | Active: {snapshot ? `${snapshot.signal.activeAsset}-PERP` : "Unavailable"}
+                Live Funding (8hr) | Active: {effectiveActiveAsset ? `${effectiveActiveAsset}-PERP` : "Unavailable"}
               </div>
               {liveFundingEntries.length > 0 ? (
                 liveFundingEntries.map(([asset, rate]) => (
@@ -987,7 +1038,7 @@ export default function Dashboard() {
                 <Clock className="w-4 h-4" />
                 <span>Last update</span>
               </div>
-              <span>{snapshot ? toLastUpdateLabel(snapshot.generatedAt) : "N/A"}</span>
+              <span>{signalUpdatedAt ? toLastUpdateLabel(signalUpdatedAt) : "N/A"}</span>
             </div>
           </motion.div>
         </div>

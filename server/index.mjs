@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { generateAiSignal } from "../lib/aiSignalEngine.mjs";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const POLL_TICK_MS = 5000;
@@ -375,6 +376,13 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "GET" && pathname === "/api/v1/vault/activity") {
       json(res, 200, { items: state.activity });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/v1/ai/signal") {
+      const body = await parseBody(req);
+      const decision = await generateAiSignal(body);
+      json(res, 200, decision);
       return;
     }
 
