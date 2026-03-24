@@ -56,14 +56,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     provider.on?.("disconnect", onDisconnect);
     provider.on?.("accountChanged", onAccountChanged);
 
-    void provider
-      .connect({ onlyIfTrusted: true })
-      .then((result) => {
-        setWalletAddress(result.publicKey.toString());
-      })
-      .catch(() => {
-        setWalletAddress(null);
-      });
+    // Auto-connect disabled: user must click "Connect Wallet" manually.
+    if (provider.publicKey) {
+      setWalletAddress(provider.publicKey.toString());
+    }
 
     return () => {
       provider.off?.("connect", onConnect);
