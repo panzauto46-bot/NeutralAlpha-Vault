@@ -30,10 +30,7 @@ import {
 import {
   fetchDashboardSnapshot,
   fetchVaultActivity,
-  postDeposit,
-  postWithdraw,
 } from "@/services/dashboardApi";
-import { getFallbackSnapshot } from "@/services/dashboardFallback";
 import type { AiAction, DashboardSnapshot, VaultActivityItem } from "@/types/dashboard";
 import { useWallet } from "@/context/WalletContext";
 import {
@@ -52,11 +49,10 @@ import {
   buildSolscanTxUrl,
 } from "@/config/network";
 
-type DataMode = "live" | "fallback";
+type DataMode = "live" | "unavailable";
 
 const POLL_INTERVAL_MS = 15_000;
 const QUICK_AMOUNTS_USD = [25, 100, 250];
-const FALLBACK_LOCK_PERIOD_MS = 90 * 24 * 60 * 60 * 1_000;
 
 const SIGNAL_STYLES: Record<AiAction, { panel: string; text: string }> = {
   HOLD: {
@@ -119,29 +115,6 @@ function formatCountdown(ms: number) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
-function getFallbackActivity(walletAddress: string | null): VaultActivityItem[] {
-  const now = Date.now();
-  const wallet = walletAddress ?? "guest";
-  return [
-    {
-      id: "fallback-1",
-      action: "DEPOSIT",
-      amountUsd: 100,
-      wallet,
-      at: new Date(now - 36 * 60 * 1000).toISOString(),
-      source: "fallback",
-    },
-    {
-      id: "fallback-2",
-      action: "WITHDRAW",
-      amountUsd: 40,
-      wallet,
-      at: new Date(now - 12 * 60 * 1000).toISOString(),
-      source: "fallback",
-    },
-  ];
-}
-
 function getWalletProvider() {
   if (typeof window === "undefined") {
     return null;
@@ -152,9 +125,9 @@ function getWalletProvider() {
 export default function Dashboard() {
   const { walletAddress, walletReady } = useWallet();
 
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot>(() => getFallbackSnapshot());
-  const [dataMode, setDataMode] = useState<DataMode>("fallback");
-  const [statusLabel, setStatusLabel] = useState("Connecting to telemetry API...");
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [dataMode, setDataMode] = useState<DataMode>("unavailable");
+  const [statusLabel, setStatusLabel] = useState("Waiting for telemetry API...");
   const [isLoading, setIsLoading] = useState(true);
 
   const [onChainSnapshot, setOnChainSnapshot] = useState<OnChainSnapshot | null>(null);
@@ -187,9 +160,9 @@ export default function Dashboard() {
       setDataMode("live");
       setStatusLabel("Live telemetry stream active.");
     } catch {
-      setSnapshot(getFallbackSnapshot());
-      setDataMode("fallback");
-      setStatusLabel("API unavailable. Showing fallback dataset.");
+      setSnapshot(null);
+      setDataMode("unavailable");
+      setStatusLabel("Telemetry API unavailable.");
     } finally {
       setIsLoading(false);
     }
@@ -212,7 +185,7 @@ export default function Dashboard() {
       );
     } catch {
       setOnChainSnapshot(null);
-      setOnChainStatus("On-chain RPC unavailable. Using fallback data.");
+      setOnChainStatus("On-chain RPC unavailable.");
     }
   }, [walletAddress]);
 
@@ -228,19 +201,19 @@ export default function Dashboard() {
         );
         return;
       } catch {
-        setActivityStatus("On-chain activity fetch failed. Trying API fallback.");
+        setActivityStatus("On-chain activity fetch failed. Trying telemetry API.");
       }
     }
 
     try {
       const payload = await fetchVaultActivity();
       setActivityItems(payload.items.map((item) => ({ ...item, source: "api" })));
-      setActivityStatus("Showing API fallback activity.");
+      setActivityStatus("Telemetry API activity synced.");
     } catch {
-      setActivityItems(getFallbackActivity(walletAddress));
-      setActivityStatus("Showing local fallback activity dataset.");
+      setActivityItems([]);
+      setActivityStatus("No verifiable activity data.");
     }
-  }, [walletAddress]);
+  }, []);
 
   useEffect(() => {
     void Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
@@ -283,26 +256,17 @@ export default function Dashboard() {
 
   const estimatedShares = onChainSnapshot ? onChainSnapshot.userShares : simulatedShares;
 
-  const fallbackLastDepositAt = useMemo(() => {
-    const deposits = walletActivity.filter((item) => item.action === "DEPOSIT");
-    if (deposits.length === 0) {
-      return null;
-    }
-    return deposits.reduce((latest, item) => (item.at > latest ? item.at : latest), deposits[0].at);
-  }, [walletActivity]);
-
   const unlockTsMs = useMemo(() => {
     if (onChainSnapshot?.userUnlockTs && onChainSnapshot.userUnlockTs > 0) {
       return onChainSnapshot.userUnlockTs * 1000;
     }
-    if (!fallbackLastDepositAt) {
-      return null;
-    }
-    return new Date(fallbackLastDepositAt).getTime() + FALLBACK_LOCK_PERIOD_MS;
-  }, [fallbackLastDepositAt, onChainSnapshot]);
+    return null;
+  }, [onChainSnapshot]);
 
   const lockRemainingMs = unlockTsMs ? unlockTsMs - nowTs : 0;
   const isLocked = Boolean(unlockTsMs && lockRemainingMs > 0 && !onChainSnapshot?.emergencyMode);
+  const isEmergencyMode = Boolean(onChainSnapshot?.emergencyMode || snapshot?.risk.emergencyState);
+  const isDepositPaused = Boolean(onChainSnapshot?.paused || snapshot?.risk.depositPaused);
 
   const quickWithdrawOptions = useMemo(() => {
     if (estimatedShares <= 0) {
@@ -312,51 +276,71 @@ export default function Dashboard() {
     return [...new Set(values)].filter((value) => value > 0);
   }, [estimatedShares]);
 
-  const tvlForDisplay = onChainSnapshot ? onChainSnapshot.totalUsdc : snapshot.overview.tvlUsd;
-
   const metrics = useMemo(
     () => [
       {
         label: "Total Value Locked",
-        value: formatUsd(tvlForDisplay),
-        change: formatSignedPercent(snapshot.overview.tvlChangePct),
-        positive: snapshot.overview.tvlChangePct >= 0,
+        value: onChainSnapshot
+          ? formatUsd(onChainSnapshot.totalUsdc)
+          : snapshot
+            ? formatUsd(snapshot.overview.tvlUsd)
+            : "N/A",
+        change: snapshot ? formatSignedPercent(snapshot.overview.tvlChangePct) : "Unavailable",
+        tone: snapshot
+          ? (snapshot.overview.tvlChangePct >= 0 ? "positive" : "negative")
+          : "neutral",
         icon: DollarSign,
       },
       {
         label: "Current APY",
-        value: formatPercent(snapshot.overview.currentApyPct, 1),
-        change: formatSignedPercent(snapshot.overview.apyChangePct),
-        positive: snapshot.overview.apyChangePct >= 0,
+        value: snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : "N/A",
+        change: snapshot ? formatSignedPercent(snapshot.overview.apyChangePct) : "Unavailable",
+        tone: snapshot
+          ? (snapshot.overview.apyChangePct >= 0 ? "positive" : "negative")
+          : "neutral",
         icon: TrendingUp,
       },
       {
         label: "Health Ratio",
-        value: snapshot.overview.healthRatio.toFixed(2),
-        change:
-          snapshot.overview.healthRatio >= snapshot.risk.limits.minHealthRatioTarget
+        value: snapshot ? snapshot.overview.healthRatio.toFixed(2) : "N/A",
+        change: snapshot
+          ? snapshot.overview.healthRatio >= snapshot.risk.limits.minHealthRatioTarget
             ? "Safe"
-            : "Watch",
-        positive: snapshot.overview.healthRatio >= snapshot.risk.limits.minHealthRatioTarget,
+            : "Watch"
+          : "Unavailable",
+        tone: snapshot
+          ? (snapshot.overview.healthRatio >= snapshot.risk.limits.minHealthRatioTarget
+            ? "positive"
+            : "negative")
+          : "neutral",
         icon: Shield,
       },
       {
         label: "Delta Exposure",
-        value: formatSignedPercent(snapshot.overview.deltaExposurePct, 2),
-        change:
-          Math.abs(snapshot.overview.deltaExposurePct) <= snapshot.risk.limits.maxDeltaDriftPct
+        value: snapshot ? formatSignedPercent(snapshot.overview.deltaExposurePct, 2) : "N/A",
+        change: snapshot
+          ? Math.abs(snapshot.overview.deltaExposurePct) <= snapshot.risk.limits.maxDeltaDriftPct
             ? "Neutral"
-            : "Rebalance",
-        positive:
-          Math.abs(snapshot.overview.deltaExposurePct) <= snapshot.risk.limits.maxDeltaDriftPct,
+            : "Rebalance"
+          : "Unavailable",
+        tone: snapshot
+          ? (Math.abs(snapshot.overview.deltaExposurePct) <= snapshot.risk.limits.maxDeltaDriftPct
+            ? "positive"
+            : "negative")
+          : "neutral",
         icon: Activity,
       },
     ],
-    [snapshot, tvlForDisplay],
+    [onChainSnapshot, snapshot],
   );
 
-  const signalStyle = SIGNAL_STYLES[snapshot.signal.action];
-  const liveFundingEntries = Object.entries(snapshot.liveFunding);
+  const signalStyle = snapshot
+    ? SIGNAL_STYLES[snapshot.signal.action]
+    : {
+        panel: "bg-slate-500/10 border border-white/10",
+        text: "text-slate-300",
+      };
+  const liveFundingEntries = snapshot ? Object.entries(snapshot.liveFunding) : [];
   const recentActivity = useMemo(() => activityItems.slice(0, 6), [activityItems]);
   const latestExplorerActivity = useMemo(
     () => recentActivity.find((item) => Boolean(item.explorerUrl)),
@@ -393,8 +377,21 @@ export default function Dashboard() {
     [latestExplorerActivity?.signature, latestTx?.signature, onChainSnapshot?.shareMintAddress, onChainSnapshot?.usdcVaultAddress, onChainSnapshot?.vaultStateAddress],
   );
 
+  const latestTxUrl = latestTx?.explorerUrl ?? latestExplorerActivity?.explorerUrl ?? null;
+  const latestTxSignature = latestTx?.signature ?? latestExplorerActivity?.signature ?? null;
+  const onChainProofStatus = latestTxSignature ? "Success tx detected" : "No tx detected yet";
+  const strategyLockText = onChainSnapshot?.lockPeriodSecs
+    ? `${Math.round(onChainSnapshot.lockPeriodSecs / 86_400)}-day rolling lock`
+    : "3-month rolling lock";
+  const strategyHealthMin = snapshot?.risk.limits.minHealthRatioTarget ?? 1.5;
+  const riskDrawdownText = snapshot ? formatPercent(snapshot.risk.drawdown7dPct, 2) : "Unavailable";
+
   async function handleDepositClick() {
-    if (snapshot.risk.depositPaused || snapshot.risk.emergencyState) {
+    if (!onChainReady || !walletAddress) {
+      setDepositMessage("Connect wallet to submit a real on-chain deposit.");
+      return;
+    }
+    if (isDepositPaused || isEmergencyMode) {
       setDepositMessage("Deposits are paused by risk controls.");
       return;
     }
@@ -409,19 +406,13 @@ export default function Dashboard() {
     setDepositMessage(null);
 
     try {
-      if (onChainReady && walletAddress) {
-        const provider = getWalletProvider();
-        if (!provider) {
-          throw new Error("Wallet provider not found in browser.");
-        }
-        const result = await sendOnChainDeposit(provider, walletAddress, amount);
-        setLatestTx({ action: "DEPOSIT", signature: result.signature, explorerUrl: result.explorerUrl });
-        setDepositMessage(`Deposit confirmed on-chain: ${result.signature.slice(0, 8)}...`);
-      } else {
-        const result = await postDeposit(amount, walletKey);
-        setLatestTx(null);
-        setDepositMessage(result.message);
+      const provider = getWalletProvider();
+      if (!provider) {
+        throw new Error("Wallet provider not found in browser.");
       }
+      const result = await sendOnChainDeposit(provider, walletAddress, amount);
+      setLatestTx({ action: "DEPOSIT", signature: result.signature, explorerUrl: result.explorerUrl });
+      setDepositMessage(`Deposit confirmed on-chain: ${result.signature.slice(0, 8)}...`);
 
       setDepositAmount("");
       await Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
@@ -434,6 +425,10 @@ export default function Dashboard() {
   }
 
   async function handleWithdrawClick() {
+    if (!onChainReady || !walletAddress) {
+      setWithdrawMessage("Connect wallet to submit a real on-chain withdraw.");
+      return;
+    }
     if (isLocked) {
       setWithdrawMessage("Position is still in lock period.");
       return;
@@ -453,19 +448,13 @@ export default function Dashboard() {
     setWithdrawMessage(null);
 
     try {
-      if (onChainReady && walletAddress) {
-        const provider = getWalletProvider();
-        if (!provider) {
-          throw new Error("Wallet provider not found in browser.");
-        }
-        const result = await sendOnChainWithdraw(provider, walletAddress, amount);
-        setLatestTx({ action: "WITHDRAW", signature: result.signature, explorerUrl: result.explorerUrl });
-        setWithdrawMessage(`Withdraw confirmed on-chain: ${result.signature.slice(0, 8)}...`);
-      } else {
-        const result = await postWithdraw(amount, walletKey);
-        setLatestTx(null);
-        setWithdrawMessage(result.message);
+      const provider = getWalletProvider();
+      if (!provider) {
+        throw new Error("Wallet provider not found in browser.");
       }
+      const result = await sendOnChainWithdraw(provider, walletAddress, amount);
+      setLatestTx({ action: "WITHDRAW", signature: result.signature, explorerUrl: result.explorerUrl });
+      setWithdrawMessage(`Withdraw confirmed on-chain: ${result.signature.slice(0, 8)}...`);
 
       setWithdrawAmount("");
       await Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
@@ -498,10 +487,10 @@ export default function Dashboard() {
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 h-fit">
                 <span
-                  className={`w-2 h-2 rounded-full ${dataMode === "live" ? "bg-green-400" : "bg-yellow-400"}`}
+                  className={`w-2 h-2 rounded-full ${dataMode === "live" ? "bg-green-400" : "bg-slate-500"}`}
                 />
                 <span className="text-slate-300">
-                  {dataMode === "live" ? "Live API" : "Fallback"} | {statusLabel}
+                  {dataMode === "live" ? "Live API" : "API Unavailable"} | {statusLabel}
                 </span>
                 {isLoading ? <RefreshCw className="w-3 h-3 text-slate-400 animate-spin" /> : null}
               </div>
@@ -512,7 +501,7 @@ export default function Dashboard() {
               <div className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 h-fit">
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    activityStatus.includes("On-chain") ? "bg-emerald-400" : "bg-yellow-400"
+                    activityStatus.includes("synced") ? "bg-emerald-400" : "bg-slate-500"
                   }`}
                 />
                 <span className="text-slate-300">{activityStatus}</span>
@@ -573,7 +562,7 @@ export default function Dashboard() {
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
           <div className="lg:col-span-2">
             <div className="grid grid-cols-2 gap-4">
-              {metrics.map((metric, i) => (
+            {metrics.map((metric, i) => (
                 <motion.div
                   key={metric.label}
                   initial={{ opacity: 0, y: 20 }}
@@ -588,9 +577,11 @@ export default function Dashboard() {
                     </div>
                     <span
                       className={`text-xs font-medium px-2 py-1 rounded-full ${
-                        metric.positive
+                        metric.tone === "positive"
                           ? "bg-green-500/10 text-green-400"
-                          : "bg-red-500/10 text-red-400"
+                          : metric.tone === "negative"
+                            ? "bg-red-500/10 text-red-400"
+                            : "bg-slate-500/20 text-slate-300"
                       }`}
                     >
                       {metric.change}
@@ -602,7 +593,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {snapshot.risk.alerts.length > 0 ? (
+            {snapshot && snapshot.risk.alerts.length > 0 ? (
               <div className="mt-4 p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10">
                 <div className="text-sm text-yellow-300 font-medium mb-2">Risk Alerts</div>
                 <div className="space-y-1">
@@ -614,6 +605,40 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : null}
+
+            <div className="mt-4 grid md:grid-cols-3 gap-4">
+              <div className="glass rounded-2xl p-4 border border-white/10">
+                <p className="text-xs uppercase tracking-[0.12em] text-slate-500 mb-2">On-Chain Proof</p>
+                <p className="text-sm text-white font-medium mb-1">{onChainProofStatus}</p>
+                {latestTxUrl && latestTxSignature ? (
+                  <a
+                    href={latestTxUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-emerald-300 hover:text-emerald-200 inline-flex items-center gap-1"
+                  >
+                    {shortWallet(latestTxSignature)} | Solscan
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <p className="text-xs text-slate-400">Execute 1 tx to generate proof link.</p>
+                )}
+              </div>
+
+              <div className="glass rounded-2xl p-4 border border-white/10">
+                <p className="text-xs uppercase tracking-[0.12em] text-slate-500 mb-2">Strategy Compliance</p>
+                <p className="text-sm text-white">USDC only: {USDC_MINT ? "Yes" : "Not configured"}</p>
+                <p className="text-sm text-white">Lock: {strategyLockText}</p>
+                <p className="text-sm text-white">Min health ratio: {strategyHealthMin.toFixed(2)}</p>
+              </div>
+
+              <div className="glass rounded-2xl p-4 border border-white/10">
+                <p className="text-xs uppercase tracking-[0.12em] text-slate-500 mb-2">Risk Status</p>
+                <p className="text-sm text-white">Emergency mode: {isEmergencyMode ? "ON" : "OFF"}</p>
+                <p className="text-sm text-white">Deposit paused: {isDepositPaused ? "YES" : "NO"}</p>
+                <p className="text-sm text-white">7d drawdown: {riskDrawdownText}</p>
+              </div>
+            </div>
           </div>
 
           <motion.div
@@ -629,9 +654,9 @@ export default function Dashboard() {
             </div>
             <div className="mb-4 text-xs text-slate-500 space-y-1">
               <p>Wallet: {walletAddress ? shortWallet(walletAddress) : walletReady ? "not connected" : "Phantom not detected"}</p>
-              <p>USDC price: ${snapshot.risk.usdcPrice.toFixed(4)}</p>
-              <p>7d drawdown: {formatPercent(snapshot.risk.drawdown7dPct, 2)}</p>
-              <p>Mode: {onChainReady ? "On-chain transactions" : "Simulation fallback"}</p>
+              <p>USDC price: {snapshot ? `$${snapshot.risk.usdcPrice.toFixed(4)}` : "Unavailable"}</p>
+              <p>7d drawdown: {snapshot ? formatPercent(snapshot.risk.drawdown7dPct, 2) : "Unavailable"}</p>
+              <p>Mode: {onChainReady ? "On-chain only" : "Read-only (connect wallet)"}</p>
             </div>
             <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
               <p className="text-xs text-slate-500 mb-2">Your Position</p>
@@ -693,18 +718,18 @@ export default function Dashboard() {
             </div>
             <button
               onClick={() => void handleDepositClick()}
-              disabled={depositPending || snapshot.risk.depositPaused || snapshot.risk.emergencyState}
+              disabled={depositPending || !onChainReady || isDepositPaused || isEmergencyMode}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold hover:from-green-400 hover:to-green-500 transition-all shadow-lg shadow-green-500/25 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {snapshot.risk.emergencyState
+              {isEmergencyMode
                 ? "Emergency Mode"
-                : snapshot.risk.depositPaused
+                : isDepositPaused
                   ? "Deposits Paused"
-                  : depositPending
-                    ? "Processing..."
+                : depositPending
+                  ? "Processing..."
                     : onChainReady
                       ? "Deposit USDC On-Chain"
-                      : "Deposit (Simulated)"}
+                      : "Connect Wallet to Deposit"}
             </button>
             {depositMessage ? <p className="text-xs text-slate-400 text-center mt-3">{depositMessage}</p> : null}
 
@@ -739,16 +764,16 @@ export default function Dashboard() {
             </div>
             <button
               onClick={() => void handleWithdrawClick()}
-              disabled={withdrawPending || isLocked || estimatedShares <= 0}
+              disabled={withdrawPending || !onChainReady || isLocked || estimatedShares <= 0}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold hover:from-blue-400 hover:to-cyan-400 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isLocked
                 ? "Locked"
                 : withdrawPending
                   ? "Processing..."
-                  : onChainReady
-                    ? "Withdraw On-Chain"
-                    : "Withdraw (Simulated)"}
+                    : onChainReady
+                      ? "Withdraw On-Chain"
+                      : "Connect Wallet to Withdraw"}
             </button>
             {withdrawMessage ? <p className="text-xs text-slate-400 text-center mt-3">{withdrawMessage}</p> : null}
 
@@ -783,33 +808,41 @@ export default function Dashboard() {
               </div>
               <div className="flex items-center gap-2 text-green-400">
                 <TrendingUp className="w-4 h-4" />
-                <span className="font-medium">{formatPercent(snapshot.overview.currentApyPct, 1)}</span>
+                <span className="font-medium">
+                  {snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : "N/A"}
+                </span>
               </div>
             </div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={snapshot.navSeries}>
-                  <defs>
-                    <linearGradient id="navGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22c55e" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#32324a" />
-                  <XAxis dataKey="date" stroke="#64748b" fontSize={12} />
-                  <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `$${(v / 1_000_000).toFixed(2)}M`} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1a1a24",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "12px",
-                    }}
-                    formatter={(value) => [formatUsd(Number(value)), "NAV"]}
-                  />
-                  <Area type="monotone" dataKey="nav" stroke="#22c55e" strokeWidth={2} fill="url(#navGradient)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            {snapshot ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={snapshot.navSeries}>
+                    <defs>
+                      <linearGradient id="navGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#32324a" />
+                    <XAxis dataKey="date" stroke="#64748b" fontSize={12} />
+                    <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `$${(v / 1_000_000).toFixed(2)}M`} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#1a1a24",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "12px",
+                      }}
+                      formatter={(value) => [formatUsd(Number(value)), "NAV"]}
+                    />
+                    <Area type="monotone" dataKey="nav" stroke="#22c55e" strokeWidth={2} fill="url(#navGradient)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-64 rounded-xl border border-white/10 bg-white/5 grid place-items-center text-slate-400 text-sm">
+                NAV data unavailable (real telemetry API offline).
+              </div>
+            )}
           </motion.div>
 
           <motion.div
@@ -820,28 +853,36 @@ export default function Dashboard() {
           >
             <h3 className="text-lg font-semibold text-white mb-2">Position Allocation</h3>
             <p className="text-sm text-slate-500 mb-4">Current exposure</p>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={snapshot.allocation} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={4} dataKey="value">
-                    {snapshot.allocation.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-2">
-              {snapshot.allocation.map((item) => (
-                <div key={item.name} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                    <span className="text-slate-400">{item.name}</span>
-                  </div>
-                  <span className="text-white font-medium">{item.value}%</span>
+            {snapshot ? (
+              <>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={snapshot.allocation} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={4} dataKey="value">
+                        {snapshot.allocation.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              ))}
-            </div>
+                <div className="space-y-2">
+                  {snapshot.allocation.map((item) => (
+                    <div key={item.name} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                        <span className="text-slate-400">{item.name}</span>
+                      </div>
+                      <span className="text-white font-medium">{item.value}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+                Allocation data unavailable.
+              </div>
+            )}
           </motion.div>
         </div>
 
@@ -873,24 +914,30 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={snapshot.fundingSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#32324a" />
-                  <XAxis dataKey="time" stroke="#64748b" fontSize={12} />
-                  <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${(v * 100).toFixed(2)}%`} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1a1a24",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "12px",
-                    }}
-                    formatter={(value) => [`${(Number(value) * 100).toFixed(3)}%`, ""]}
-                  />
-                  <Line type="monotone" dataKey="SOL" stroke="#22c55e" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="BTC" stroke="#93c5fd" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="ETH" stroke="#67e8f9" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              {snapshot ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={snapshot.fundingSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#32324a" />
+                    <XAxis dataKey="time" stroke="#64748b" fontSize={12} />
+                    <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${(v * 100).toFixed(2)}%`} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#1a1a24",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: "12px",
+                      }}
+                      formatter={(value) => [`${(Number(value) * 100).toFixed(3)}%`, ""]}
+                    />
+                    <Line type="monotone" dataKey="SOL" stroke="#22c55e" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="BTC" stroke="#93c5fd" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="ETH" stroke="#67e8f9" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full rounded-xl border border-white/10 bg-white/5 grid place-items-center text-slate-400 text-sm">
+                  Funding data unavailable.
+                </div>
+              )}
             </div>
           </motion.div>
 
@@ -907,20 +954,32 @@ export default function Dashboard() {
 
             <div className={`p-4 rounded-xl mb-6 ${signalStyle.panel}`}>
               <div className="text-sm text-slate-400 mb-1">Current Signal</div>
-              <div className={`text-2xl font-bold ${signalStyle.text}`}>{snapshot.signal.action}</div>
-              <div className="text-xs text-slate-400 mt-2">{snapshot.signal.reason}</div>
+              <div className={`text-2xl font-bold ${signalStyle.text}`}>
+                {snapshot ? snapshot.signal.action : "UNAVAILABLE"}
+              </div>
+              <div className="text-xs text-slate-400 mt-2">
+                {snapshot ? snapshot.signal.reason : "No verified telemetry feed."}
+              </div>
             </div>
 
             <div className="space-y-3 mb-6">
-              <div className="text-sm text-slate-400 mb-2">Live Funding (8hr) | Active: {snapshot.signal.activeAsset}-PERP</div>
-              {liveFundingEntries.map(([asset, rate]) => (
-                <div key={asset} className="flex items-center justify-between p-3 rounded-lg bg-white/5">
-                  <span className="text-white font-medium">{asset}-PERP</span>
-                  <span className={`font-mono ${rate > 0.01 ? "text-green-400" : "text-yellow-400"}`}>
-                    {(rate * 100).toFixed(3)}%
-                  </span>
+              <div className="text-sm text-slate-400 mb-2">
+                Live Funding (8hr) | Active: {snapshot ? `${snapshot.signal.activeAsset}-PERP` : "Unavailable"}
+              </div>
+              {liveFundingEntries.length > 0 ? (
+                liveFundingEntries.map(([asset, rate]) => (
+                  <div key={asset} className="flex items-center justify-between p-3 rounded-lg bg-white/5">
+                    <span className="text-white font-medium">{asset}-PERP</span>
+                    <span className={`font-mono ${rate > 0.01 ? "text-green-400" : "text-yellow-400"}`}>
+                      {(rate * 100).toFixed(3)}%
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-400">
+                  Funding telemetry unavailable.
                 </div>
-              ))}
+              )}
             </div>
 
             <div className="flex items-center justify-between text-sm text-slate-500 pt-4 border-t border-white/5">
@@ -928,7 +987,7 @@ export default function Dashboard() {
                 <Clock className="w-4 h-4" />
                 <span>Last update</span>
               </div>
-              <span>{toLastUpdateLabel(snapshot.generatedAt)}</span>
+              <span>{snapshot ? toLastUpdateLabel(snapshot.generatedAt) : "N/A"}</span>
             </div>
           </motion.div>
         </div>
