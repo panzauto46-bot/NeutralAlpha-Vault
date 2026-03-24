@@ -44,7 +44,6 @@ import {
   sendOnChainWithdraw,
   type OnChainSnapshot,
 } from "@/services/vaultProgram";
-import { cn } from "@/utils/cn";
 
 type DataMode = "live" | "fallback";
 
