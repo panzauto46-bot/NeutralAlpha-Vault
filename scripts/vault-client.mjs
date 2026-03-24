@@ -44,6 +44,9 @@ function usage() {
   console.log("  npm run vault:init");
   console.log("  npm run vault:deposit -- --amount <u64>");
   console.log("  npm run vault:withdraw -- --shares <u64>");
+  console.log("  npm run vault:emergency:on");
+  console.log("  npm run vault:emergency:off");
+  console.log("  node scripts/vault-client.mjs emergency --enabled <true|false>");
 }
 
 function discriminator(ixName) {
@@ -187,6 +190,12 @@ function encodeInitializeArgs(args) {
 function encodeU64Ix(ixName, amount) {
   const payload = Buffer.alloc(8);
   payload.writeBigUInt64LE(BigInt(amount));
+  return Buffer.concat([discriminator(ixName), payload]);
+}
+
+function encodeBoolIx(ixName, value) {
+  const payload = Buffer.alloc(1);
+  payload.writeUInt8(value ? 1 : 0, 0);
   return Buffer.concat([discriminator(ixName), payload]);
 }
 
@@ -443,6 +452,45 @@ async function runWithdraw() {
   await sendAndConfirm(connection, payer, [withdrawIx], "withdraw");
 }
 
+async function runEmergencyMode() {
+  const enabledArg = parseArg("enabled");
+  if (!enabledArg) {
+    throw new Error("--enabled is required for emergency command (true/false)");
+  }
+  const normalized = enabledArg.toLowerCase();
+  const enabled = normalized === "true" || normalized === "1" || normalized === "on";
+  const disabled = normalized === "false" || normalized === "0" || normalized === "off";
+  if (!enabled && !disabled) {
+    throw new Error("--enabled must be true/false");
+  }
+
+  const connection = new Connection(config.rpcUrl, "confirmed");
+  const payer = loadKeypair();
+  const programId = requirePubkey("NEUTRALALPHA_VAULT_PROGRAM_ID", config.programId);
+  const usdcMint = requirePubkey("USDC_MINT", config.usdcMint);
+  const pdas = deriveVaultPdas(programId, usdcMint, payer.publicKey);
+  const vaultState = await fetchVaultState(connection, pdas.vaultState);
+  if (!vaultState) {
+    throw new Error(`vault_state is not initialized: ${pdas.vaultState.toBase58()}`);
+  }
+
+  const emergencyIx = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: pdas.vaultState, isSigner: false, isWritable: true },
+      { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    ],
+    data: encodeBoolIx("set_emergency_mode", enabled),
+  });
+
+  await sendAndConfirm(
+    connection,
+    payer,
+    [emergencyIx],
+    enabled ? "set_emergency_mode_on" : "set_emergency_mode_off",
+  );
+}
+
 async function main() {
   const command = process.argv[2];
   if (!command) {
@@ -466,6 +514,10 @@ async function main() {
   }
   if (command === "withdraw") {
     await runWithdraw();
+    return;
+  }
+  if (command === "emergency") {
+    await runEmergencyMode();
     return;
   }
 

@@ -16,7 +16,9 @@
     "vault:accounts": "node scripts/vault-client.mjs accounts",
     "vault:init": "node scripts/vault-client.mjs init",
     "vault:deposit": "node scripts/vault-client.mjs deposit",
-    "vault:withdraw": "node scripts/vault-client.mjs withdraw"
+    "vault:withdraw": "node scripts/vault-client.mjs withdraw",
+    "vault:emergency:on": "node scripts/vault-client.mjs emergency --enabled true",
+    "vault:emergency:off": "node scripts/vault-client.mjs emergency --enabled false"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",
