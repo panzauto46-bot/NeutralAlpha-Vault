@@ -560,7 +560,7 @@ export default function Dashboard() {
         </motion.div>
 
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 h-full flex flex-col">
             <div className="grid grid-cols-2 gap-4">
             {metrics.map((metric, i) => (
                 <motion.div
@@ -606,8 +606,8 @@ export default function Dashboard() {
               </div>
             ) : null}
 
-            <div className="mt-4 grid md:grid-cols-3 gap-4">
-              <div className="glass rounded-2xl p-4 border border-white/10">
+            <div className="mt-4 grid md:grid-cols-3 gap-4 flex-1 auto-rows-fr">
+              <div className="glass rounded-2xl p-4 border border-white/10 h-full flex flex-col">
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-500 mb-2">On-Chain Proof</p>
                 <p className="text-sm text-white font-medium mb-1">{onChainProofStatus}</p>
                 {latestTxUrl && latestTxSignature ? (
@@ -621,18 +621,18 @@ export default function Dashboard() {
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 ) : (
-                  <p className="text-xs text-slate-400">Execute 1 tx to generate proof link.</p>
+                  <p className="text-xs text-slate-400 mt-auto">Execute 1 tx to generate proof link.</p>
                 )}
               </div>
 
-              <div className="glass rounded-2xl p-4 border border-white/10">
+              <div className="glass rounded-2xl p-4 border border-white/10 h-full flex flex-col">
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-500 mb-2">Strategy Compliance</p>
                 <p className="text-sm text-white">USDC only: {USDC_MINT ? "Yes" : "Not configured"}</p>
                 <p className="text-sm text-white">Lock: {strategyLockText}</p>
                 <p className="text-sm text-white">Min health ratio: {strategyHealthMin.toFixed(2)}</p>
               </div>
 
-              <div className="glass rounded-2xl p-4 border border-white/10">
+              <div className="glass rounded-2xl p-4 border border-white/10 h-full flex flex-col">
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-500 mb-2">Risk Status</p>
                 <p className="text-sm text-white">Emergency mode: {isEmergencyMode ? "ON" : "OFF"}</p>
                 <p className="text-sm text-white">Deposit paused: {isDepositPaused ? "YES" : "NO"}</p>
