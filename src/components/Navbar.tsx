@@ -32,7 +32,6 @@ export default function Navbar() {
         { label: "Dashboard", href: "#dashboard", route: false },
       ]
     : [
-        { label: "Dashboard", href: "/dashboard", route: true },
         { label: "Strategy", href: "#strategy", route: false },
         { label: "Risks", href: "#risks", route: false },
         { label: "Performance", href: "#performance", route: false },
