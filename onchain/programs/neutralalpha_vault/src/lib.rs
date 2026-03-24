@@ -5,7 +5,7 @@ use anchor_lang::solana_program::{
 };
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 
-declare_id!("Fg6PaFpoGXkYsidMpWxTWqkZ6rN1Y2fYgR6K9YqR9Qj3");
+declare_id!("QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD");
 
 const MIN_LOCK_PERIOD_SECS: i64 = 90 * 24 * 60 * 60;
 
@@ -103,6 +103,7 @@ pub mod neutralalpha_vault {
         let state_key = vault_state.key();
         let authority_bump = [vault_state.bump_authority];
         let signer_seeds: &[&[u8]] = &[b"vault_authority", state_key.as_ref(), &authority_bump];
+        let signer = [signer_seeds];
 
         let cpi_mint = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -111,7 +112,7 @@ pub mod neutralalpha_vault {
                 to: ctx.accounts.depositor_share.to_account_info(),
                 authority: ctx.accounts.vault_authority.to_account_info(),
             },
-            &[signer_seeds],
+            &signer,
         );
         token::mint_to(cpi_mint, shares_to_mint)?;
 
@@ -187,6 +188,7 @@ pub mod neutralalpha_vault {
         let state_key = vault_state.key();
         let authority_bump = [vault_state.bump_authority];
         let signer_seeds: &[&[u8]] = &[b"vault_authority", state_key.as_ref(), &authority_bump];
+        let signer = [signer_seeds];
 
         let cpi_transfer = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -195,7 +197,7 @@ pub mod neutralalpha_vault {
                 to: ctx.accounts.depositor_usdc.to_account_info(),
                 authority: ctx.accounts.vault_authority.to_account_info(),
             },
-            &[signer_seeds],
+            &signer,
         );
         token::transfer(cpi_transfer, usdc_out)?;
 
@@ -229,7 +231,9 @@ pub mod neutralalpha_vault {
             ctx.accounts.vault_state.drift_program,
             VaultError::InvalidExternalProgram
         );
-        execute_external_cpi(&ctx, &params)?;
+        let state_key = ctx.accounts.vault_state.key();
+        let bump_authority = ctx.accounts.vault_state.bump_authority;
+        execute_external_cpi(state_key, bump_authority, ctx.remaining_accounts, &params)?;
         ctx.accounts.vault_state.last_rebalance_ts = Clock::get()?.unix_timestamp;
         Ok(())
     }
@@ -243,24 +247,27 @@ pub mod neutralalpha_vault {
             ctx.accounts.vault_state.jupiter_program,
             VaultError::InvalidExternalProgram
         );
-        execute_external_cpi(&ctx, &params)?;
+        let state_key = ctx.accounts.vault_state.key();
+        let bump_authority = ctx.accounts.vault_state.bump_authority;
+        execute_external_cpi(state_key, bump_authority, ctx.remaining_accounts, &params)?;
         ctx.accounts.vault_state.last_rebalance_ts = Clock::get()?.unix_timestamp;
         Ok(())
     }
 }
 
 fn execute_external_cpi<'info>(
-    ctx: &Context<'_, '_, '_, 'info, ExecuteExternal<'info>>,
+    state_key: Pubkey,
+    bump_authority: u8,
+    remaining_accounts: &[AccountInfo<'info>],
     params: &ExternalCpiParams,
 ) -> Result<()> {
     require!(
-        params.account_flags.len() == ctx.remaining_accounts.len(),
+        params.account_flags.len() == remaining_accounts.len(),
         VaultError::AccountFlagLengthMismatch
     );
     require!(!params.data.is_empty(), VaultError::InvalidExternalData);
 
-    let metas = ctx
-        .remaining_accounts
+    let metas = remaining_accounts
         .iter()
         .enumerate()
         .map(|(idx, account)| {
@@ -281,17 +288,13 @@ fn execute_external_cpi<'info>(
         data: params.data.clone(),
     };
 
-    let account_infos = ctx
-        .remaining_accounts
-        .iter()
-        .map(ToAccountInfo::to_account_info)
-        .collect::<Vec<_>>();
+    let account_infos = remaining_accounts.to_vec();
 
-    let state_key = ctx.accounts.vault_state.key();
-    let authority_bump = [ctx.accounts.vault_state.bump_authority];
+    let authority_bump = [bump_authority];
     let signer_seeds: &[&[u8]] = &[b"vault_authority", state_key.as_ref(), &authority_bump];
+    let signer = [signer_seeds];
 
-    invoke_signed(&ix, &account_infos, &[signer_seeds])?;
+    invoke_signed(&ix, &account_infos, &signer)?;
     Ok(())
 }
 
