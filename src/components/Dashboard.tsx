@@ -320,6 +320,84 @@ export default function Dashboard() {
     return [...new Set(values)].filter((value) => value > 0);
   }, [estimatedShares]);
 
+  const onChainNavSeries = useMemo(() => {
+    if (!onChainSnapshot) {
+      return [];
+    }
+
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(now.getDate() - 29);
+    start.setHours(0, 0, 0, 0);
+
+    const txInWindow = activityItems
+      .filter((item) => item.source === "onchain" && (item.action === "DEPOSIT" || item.action === "WITHDRAW"))
+      .map((item) => ({ ...item, ts: new Date(item.at).getTime() }))
+      .filter((item) => Number.isFinite(item.ts) && item.ts >= start.getTime())
+      .sort((a, b) => a.ts - b.ts);
+
+    const applyTx = (value: number, action: "DEPOSIT" | "WITHDRAW", amountUsd: number) => {
+      if (action === "DEPOSIT") return value + amountUsd;
+      if (action === "WITHDRAW") return value - amountUsd;
+      return value;
+    };
+
+    const undoTx = (value: number, action: "DEPOSIT" | "WITHDRAW", amountUsd: number) => {
+      if (action === "DEPOSIT") return value - amountUsd;
+      if (action === "WITHDRAW") return value + amountUsd;
+      return value;
+    };
+
+    let running = onChainSnapshot.totalUsdc;
+    for (let index = txInWindow.length - 1; index >= 0; index -= 1) {
+      const item = txInWindow[index];
+      running = undoTx(running, item.action as "DEPOSIT" | "WITHDRAW", item.amountUsd);
+    }
+
+    const points: Array<{ date: string; nav: number }> = [];
+    let cursor = 0;
+    let dayValue = running;
+
+    for (let offset = 0; offset < 30; offset += 1) {
+      const day = new Date(start);
+      day.setDate(start.getDate() + offset);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      while (cursor < txInWindow.length && txInWindow[cursor].ts <= dayEnd.getTime()) {
+        const item = txInWindow[cursor];
+        dayValue = applyTx(dayValue, item.action as "DEPOSIT" | "WITHDRAW", item.amountUsd);
+        cursor += 1;
+      }
+
+      points.push({
+        date: day.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        nav: Math.max(0, Math.round(dayValue)),
+      });
+    }
+
+    if (points.length > 0) {
+      points[points.length - 1].nav = Math.round(onChainSnapshot.totalUsdc);
+    }
+    return points;
+  }, [activityItems, onChainSnapshot]);
+
+  const onChainDrawdown7dPct = useMemo(() => {
+    if (snapshot) {
+      return snapshot.risk.drawdown7dPct;
+    }
+    if (onChainNavSeries.length < 8) {
+      return null;
+    }
+
+    const latest = onChainNavSeries[onChainNavSeries.length - 1].nav;
+    const sevenDaysAgo = onChainNavSeries[Math.max(0, onChainNavSeries.length - 8)].nav;
+    if (sevenDaysAgo <= 0) {
+      return null;
+    }
+    return Math.max(0, ((sevenDaysAgo - latest) / sevenDaysAgo) * 100);
+  }, [onChainNavSeries, snapshot]);
+
   const metrics = useMemo(
     () => [
       {
@@ -337,8 +415,8 @@ export default function Dashboard() {
       },
       {
         label: "Current APY",
-        value: snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : "N/A",
-        change: snapshot ? formatSignedPercent(snapshot.overview.apyChangePct) : "Unavailable",
+        value: snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : onChainSnapshot ? "Pending feed" : "Unavailable",
+        change: snapshot ? formatSignedPercent(snapshot.overview.apyChangePct) : onChainSnapshot ? "On-chain only" : "Unavailable",
         tone: snapshot
           ? (snapshot.overview.apyChangePct >= 0 ? "positive" : "negative")
           : "neutral",
@@ -346,26 +424,36 @@ export default function Dashboard() {
       },
       {
         label: "Health Ratio",
-        value: snapshot ? snapshot.overview.healthRatio.toFixed(2) : "N/A",
+        value: snapshot
+          ? snapshot.overview.healthRatio.toFixed(2)
+          : onChainSnapshot
+            ? (onChainSnapshot.emergencyMode ? "Alert" : "Normal")
+            : "Unavailable",
         change: snapshot
           ? snapshot.overview.healthRatio >= snapshot.risk.limits.minHealthRatioTarget
             ? "Safe"
             : "Watch"
-          : "Unavailable",
+          : onChainSnapshot
+            ? (onChainSnapshot.emergencyMode ? "Emergency" : "No Emergency")
+            : "Unavailable",
         tone: snapshot
           ? (snapshot.overview.healthRatio >= snapshot.risk.limits.minHealthRatioTarget
             ? "positive"
             : "negative")
+          : onChainSnapshot
+            ? (onChainSnapshot.emergencyMode ? "negative" : "positive")
           : "neutral",
         icon: Shield,
       },
       {
         label: "Delta Exposure",
-        value: snapshot ? formatSignedPercent(snapshot.overview.deltaExposurePct, 2) : "N/A",
+        value: snapshot ? formatSignedPercent(snapshot.overview.deltaExposurePct, 2) : onChainSnapshot ? "Pending feed" : "Unavailable",
         change: snapshot
           ? Math.abs(snapshot.overview.deltaExposurePct) <= snapshot.risk.limits.maxDeltaDriftPct
             ? "Neutral"
             : "Rebalance"
+          : onChainSnapshot
+            ? "Telemetry feed pending"
           : "Unavailable",
         tone: snapshot
           ? (Math.abs(snapshot.overview.deltaExposurePct) <= snapshot.risk.limits.maxDeltaDriftPct
@@ -434,7 +522,8 @@ export default function Dashboard() {
     ? `${Math.round(onChainSnapshot.lockPeriodSecs / 86_400)}-day rolling lock`
     : "3-month rolling lock";
   const strategyHealthMin = snapshot?.risk.limits.minHealthRatioTarget ?? 1.5;
-  const riskDrawdownText = snapshot ? formatPercent(snapshot.risk.drawdown7dPct, 2) : "Unavailable";
+  const riskDrawdownText =
+    onChainDrawdown7dPct !== null ? formatPercent(onChainDrawdown7dPct, 2) : "Pending history";
 
   async function handleDepositClick() {
     if (!onChainReady || !walletAddress) {
@@ -704,8 +793,8 @@ export default function Dashboard() {
             </div>
             <div className="mb-4 text-xs text-slate-500 space-y-1">
               <p>Wallet: {walletAddress ? shortWallet(walletAddress) : walletReady ? "not connected" : "Phantom not detected"}</p>
-              <p>USDC price: {snapshot ? `$${snapshot.risk.usdcPrice.toFixed(4)}` : "Unavailable"}</p>
-              <p>7d drawdown: {snapshot ? formatPercent(snapshot.risk.drawdown7dPct, 2) : "Unavailable"}</p>
+              <p>USDC price: {snapshot ? `$${snapshot.risk.usdcPrice.toFixed(4)}` : "Feed pending"}</p>
+              <p>7d drawdown: {onChainDrawdown7dPct !== null ? formatPercent(onChainDrawdown7dPct, 2) : "Feed pending"}</p>
               <p>Mode: {onChainReady ? "On-chain only" : "Read-only (connect wallet)"}</p>
             </div>
             <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
@@ -859,14 +948,14 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 text-green-400">
                 <TrendingUp className="w-4 h-4" />
                 <span className="font-medium">
-                  {snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : "N/A"}
+                  {snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : onChainSnapshot ? "On-chain" : "N/A"}
                 </span>
               </div>
             </div>
-            {snapshot ? (
+            {(snapshot || onChainNavSeries.length > 0) ? (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={snapshot.navSeries}>
+                  <AreaChart data={snapshot?.navSeries ?? onChainNavSeries}>
                     <defs>
                       <linearGradient id="navGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#22c55e" stopOpacity={0.3} />
@@ -882,7 +971,7 @@ export default function Dashboard() {
                         border: "1px solid rgba(255,255,255,0.1)",
                         borderRadius: "12px",
                       }}
-                      formatter={(value) => [formatUsd(Number(value)), "NAV"]}
+                      formatter={(value) => [formatUsd(Number(value)), snapshot ? "NAV" : "TVL (on-chain)"]}
                     />
                     <Area type="monotone" dataKey="nav" stroke="#22c55e" strokeWidth={2} fill="url(#navGradient)" />
                   </AreaChart>
@@ -903,13 +992,21 @@ export default function Dashboard() {
           >
             <h3 className="text-lg font-semibold text-white mb-2">Position Allocation</h3>
             <p className="text-sm text-slate-500 mb-4">Current exposure</p>
-            {snapshot ? (
+            {(snapshot || onChainSnapshot) ? (
               <>
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={snapshot.allocation} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={4} dataKey="value">
-                        {snapshot.allocation.map((entry) => (
+                      <Pie
+                        data={snapshot?.allocation ?? [{ name: "USDC Reserve", value: 100, color: "#64748b" }]}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={70}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {(snapshot?.allocation ?? [{ name: "USDC Reserve", value: 100, color: "#64748b" }]).map((entry) => (
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
@@ -917,7 +1014,7 @@ export default function Dashboard() {
                   </ResponsiveContainer>
                 </div>
                 <div className="space-y-2">
-                  {snapshot.allocation.map((item) => (
+                  {(snapshot?.allocation ?? [{ name: "USDC Reserve", value: 100, color: "#64748b" }]).map((item) => (
                     <div key={item.name} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
