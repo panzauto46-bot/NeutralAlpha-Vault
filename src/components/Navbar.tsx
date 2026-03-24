@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Menu, X, Wallet, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/context/WalletContext";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -21,14 +22,23 @@ function scrollToDashboard() {
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { walletAddress, walletReady, walletBusy, connect, disconnect } = useWallet();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isDashboardRoute = location.pathname === "/dashboard";
 
-  const navLinks = [
-    { label: "Dashboard", href: "#dashboard" },
-    { label: "Strategy", href: "#strategy" },
-    { label: "Risks", href: "#risks" },
-    { label: "Performance", href: "#performance" },
-    { label: "Docs", href: "#docs" },
-  ];
+  const navLinks = isDashboardRoute
+    ? [
+        { label: "Landing", href: "/", route: true },
+        { label: "Dashboard", href: "#dashboard", route: false },
+        { label: "Docs", href: "/#docs", route: true },
+      ]
+    : [
+        { label: "Dashboard", href: "/dashboard", route: true },
+        { label: "Strategy", href: "#strategy", route: false },
+        { label: "Risks", href: "#risks", route: false },
+        { label: "Performance", href: "#performance", route: false },
+        { label: "Docs", href: "#docs", route: false },
+      ];
 
   async function handleWalletClick() {
     try {
@@ -45,10 +55,15 @@ export default function Navbar() {
         return;
       }
       await connect();
-      if (window.location.hash !== "#dashboard") {
-        window.location.hash = "dashboard";
+      if (!isDashboardRoute) {
+        navigate("/dashboard");
+        window.setTimeout(scrollToDashboard, 50);
+      } else {
+        if (window.location.hash !== "#dashboard") {
+          window.location.hash = "dashboard";
+        }
+        scrollToDashboard();
       }
-      scrollToDashboard();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown wallet error.";
       window.alert(`Wallet action failed: ${message}`);
@@ -75,27 +90,37 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-3">
-            <div className="relative">
+            <Link to="/" className="relative">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center">
                 <span className="text-xl font-bold text-white">N</span>
               </div>
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-pulse" />
-            </div>
-            <div className="hidden sm:block">
+            </Link>
+            <Link to="/" className="hidden sm:block">
               <h1 className="text-lg font-bold text-white">NeutralAlpha</h1>
               <p className="text-[10px] text-slate-400 -mt-1">VAULT</p>
-            </div>
+            </Link>
           </div>
 
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
-              >
-                {link.label}
-              </a>
+              link.route ? (
+                <Link
+                  key={link.label}
+                  to={link.href}
+                  className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                >
+                  {link.label}
+                </a>
+              )
             ))}
           </div>
 
@@ -141,14 +166,25 @@ export default function Navbar() {
           >
             <div className="px-4 py-4 space-y-1">
               {navLinks.map((link) => (
-                <a
-                  key={link.label}
-                  href={link.href}
-                  className="block px-4 py-3 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
-                  onClick={() => setIsOpen(false)}
-                >
-                  {link.label}
-                </a>
+                link.route ? (
+                  <Link
+                    key={link.label}
+                    to={link.href}
+                    className="block px-4 py-3 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    {link.label}
+                  </Link>
+                ) : (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    className="block px-4 py-3 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    {link.label}
+                  </a>
+                )
               ))}
               <button
                 onClick={() => void handleWalletClick()}

@@ -3,7 +3,7 @@ import { Github, Twitter, MessageCircle, FileText, ExternalLink } from 'lucide-r
 export default function Footer() {
   const links = {
     product: [
-      { label: 'Dashboard', href: '#dashboard' },
+      { label: 'Dashboard', href: '/dashboard' },
       { label: 'Strategy', href: '#strategy' },
       { label: 'Risks', href: '#risks' },
       { label: 'Performance', href: '#performance' },

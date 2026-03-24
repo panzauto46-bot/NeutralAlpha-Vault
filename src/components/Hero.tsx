@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, Shield, Zap, TrendingUp, Bot } from 'lucide-react';
+import { Link } from "react-router-dom";
 
 export default function Hero() {
   return (
@@ -98,13 +99,13 @@ export default function Hero() {
           transition={{ duration: 0.5, delay: 0.5 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
         >
-          <a
-            href="#dashboard"
+          <Link
+            to="/dashboard"
             className="group flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 rounded-xl text-white font-semibold hover:from-green-400 hover:to-green-500 transition-all shadow-lg shadow-green-500/25 glow-green"
           >
             Launch App
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-          </a>
+          </Link>
           <a
             href="#strategy"
             className="flex items-center gap-2 px-8 py-4 glass rounded-xl text-white font-semibold hover:bg-white/10 transition-all"
