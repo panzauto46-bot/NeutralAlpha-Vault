@@ -512,21 +512,6 @@ NeutralAlpha-Vault/
 │   ├── testnet-harness.mjs      # Solana testnet transaction harness
 │   └── vault-client.mjs         # CLI vault operations (init/deposit/withdraw)
 │
-├── 📁 docs/                     # Documentation (13 files)
-│   ├── API_CONTRACT.md          # Frozen API specification
-│   ├── STRATEGY_FINAL.md        # Strategy thesis + edge explanation
-│   ├── BACKTEST_APY_REPORT.md   # APY projections (Bear/Base/Bull)
-│   ├── COMPLIANCE_NARRATIVE.md  # Regulatory compliance narrative
-│   ├── RUNBOOK.md               # Setup & operations guide
-│   ├── ONCHAIN_RUNBOOK.md       # Anchor deploy instructions
-│   ├── TESTNET_HARNESS.md       # Testnet harness documentation
-│   ├── DEMO_VIDEO_SCRIPT_FINAL.md # Demo video script
-│   ├── RANGER_SUBMISSION_PACKAGE.md # Submission form draft
-│   ├── FULL_PROJECT_AUDIT.md    # Comprehensive project audit
-│   ├── TODO_ACTION_PLAN.md      # Action plan tracking
-│   ├── STATUS_2026-03-22.md     # Progress report
-│   └── FINAL_SMOKE_TEST_REPORT_2026-03-25.md # Smoke test results
-│
 └── 📁 assets/                   # Static assets
     ├── banner.png               # Project banner
     ├── architecture-diagram.png # System architecture diagram
