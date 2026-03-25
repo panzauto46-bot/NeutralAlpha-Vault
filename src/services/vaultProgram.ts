@@ -352,6 +352,64 @@ function decodeAmountFromInstructionData(dataBase58: string) {
   return null;
 }
 
+function decodeActionFromLogs(logs: string[] | null | undefined): ActivityAction | null {
+  if (!logs || logs.length === 0) {
+    return null;
+  }
+  const joined = logs.join(" ").toLowerCase();
+  if (joined.includes("instruction: deposit")) {
+    return "DEPOSIT";
+  }
+  if (joined.includes("instruction: withdraw")) {
+    return "WITHDRAW";
+  }
+  if (joined.includes("instruction: drift_hedge") || joined.includes("instruction: jupiter_swap")) {
+    return "REBALANCE";
+  }
+  return null;
+}
+
+function deriveAmountFromTokenBalances(
+  tx: {
+    meta?: {
+      preTokenBalances?: Array<{
+        owner?: string;
+        mint?: string;
+        uiTokenAmount?: { amount?: string };
+      }>;
+      postTokenBalances?: Array<{
+        owner?: string;
+        mint?: string;
+        uiTokenAmount?: { amount?: string };
+      }>;
+    };
+  },
+  wallet: string,
+): number {
+  const { usdcMint } = ensureConfig();
+  const mint = usdcMint.toBase58();
+  const pre = tx.meta?.preTokenBalances ?? [];
+  const post = tx.meta?.postTokenBalances ?? [];
+
+  const sumFor = (
+    rows: Array<{ owner?: string; mint?: string; uiTokenAmount?: { amount?: string } }>,
+  ) => rows
+    .filter((row) => row.owner === wallet && row.mint === mint)
+    .reduce((acc, row) => {
+      const amountRaw = row.uiTokenAmount?.amount ?? "0";
+      const amount = Number(amountRaw);
+      if (!Number.isFinite(amount)) {
+        return acc;
+      }
+      return acc + amount;
+    }, 0);
+
+  const preTotal = sumFor(pre);
+  const postTotal = sumFor(post);
+  const diffBaseUnits = postTotal - preTotal;
+  return Math.abs(diffBaseUnits) / 10 ** TOKEN_DECIMALS;
+}
+
 function isSameBytes(a: Uint8Array, b: Uint8Array) {
   if (a.length !== b.length) {
     return false;
@@ -596,7 +654,9 @@ export async function sendOnChainWithdraw(
 
 export async function fetchOnChainActivity(limit = 20, walletFilter?: string): Promise<VaultActivityItem[]> {
   const { connection, programId } = ensureConfig();
-  const signatures = await connection.getSignaturesForAddress(programId, { limit }, FINALITY);
+  const signatures = walletFilter
+    ? await connection.getSignaturesForAddress(new PublicKey(walletFilter), { limit: Math.max(limit * 2, 40) }, FINALITY)
+    : await connection.getSignaturesForAddress(programId, { limit }, FINALITY);
 
   const transactions = await Promise.all(
     signatures.map(async ({ signature, blockTime }) => {
@@ -610,27 +670,41 @@ export async function fetchOnChainActivity(limit = 20, walletFilter?: string): P
         }
 
         const { accountKeys, instructions } = getInstructionBundle(tx as never);
+        const programPresent = accountKeys.includes(programId.toBase58());
+        if (!programPresent) {
+          return null;
+        }
+
         const programIx = instructions.find((ix) => accountKeys[ix.programIdIndex] === programId.toBase58());
-        if (!programIx) {
+
+        const decoded = programIx ? decodeAmountFromInstructionData(programIx.data) : null;
+        const actionFromLogs = decodeActionFromLogs(tx.meta?.logMessages as string[] | undefined);
+        const action = decoded?.action ?? actionFromLogs;
+        if (!action) {
           return null;
         }
 
-        const decoded = decodeAmountFromInstructionData(programIx.data);
-        if (!decoded) {
-          return null;
+        let wallet = "unknown";
+        if (decoded && programIx) {
+          const ownerAccountPosition = decoded.action === "REBALANCE" ? 2 : 7;
+          const depositorKeyIndex = programIx.accounts[ownerAccountPosition];
+          wallet = typeof depositorKeyIndex === "number" ? accountKeys[depositorKeyIndex] ?? "unknown" : "unknown";
+        } else if (walletFilter) {
+          wallet = walletFilter;
         }
 
-        const ownerAccountPosition = decoded.action === "REBALANCE" ? 2 : 7;
-        const depositorKeyIndex = programIx.accounts[ownerAccountPosition];
-        const wallet = typeof depositorKeyIndex === "number" ? accountKeys[depositorKeyIndex] ?? "unknown" : "unknown";
         if (walletFilter && wallet !== walletFilter) {
           return null;
         }
 
-        const amountUsd = fromBaseUnits(decoded.amountBaseUnits);
+        let amountUsd = decoded ? fromBaseUnits(decoded.amountBaseUnits) : 0;
+        if (amountUsd <= 0 && walletFilter && (action === "DEPOSIT" || action === "WITHDRAW")) {
+          amountUsd = deriveAmountFromTokenBalances(tx as never, walletFilter);
+        }
+
         return {
           id: signature,
-          action: decoded.action as ActivityAction,
+          action,
           amountUsd,
           wallet,
           at: new Date((blockTime ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
@@ -644,5 +718,7 @@ export async function fetchOnChainActivity(limit = 20, walletFilter?: string): P
     }),
   );
 
-  return transactions.filter((item): item is NonNullable<typeof item> => item !== null);
+  return transactions
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .slice(0, limit);
 }

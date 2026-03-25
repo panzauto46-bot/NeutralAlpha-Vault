@@ -35,6 +35,7 @@ import {
   fetchAiSignal,
   type AiSignalResponse,
 } from "@/services/aiSignalApi";
+import { fetchDriftTelemetry, type DriftTelemetrySnapshot } from "@/services/driftDataApi";
 import type { AiAction, DashboardSnapshot, VaultActivityItem } from "@/types/dashboard";
 import { useWallet } from "@/context/WalletContext";
 import {
@@ -137,6 +138,8 @@ export default function Dashboard() {
   const [onChainSnapshot, setOnChainSnapshot] = useState<OnChainSnapshot | null>(null);
   const [onChainStatus, setOnChainStatus] = useState("On-chain sync idle.");
   const [activityStatus, setActivityStatus] = useState("Activity sync idle.");
+  const [driftTelemetry, setDriftTelemetry] = useState<DriftTelemetrySnapshot | null>(null);
+  const [driftStatus, setDriftStatus] = useState("Funding feed idle.");
   const [aiSignal, setAiSignal] = useState<AiSignalResponse | null>(null);
   const [aiSignalStatus, setAiSignalStatus] = useState("AI signal idle.");
 
@@ -158,6 +161,19 @@ export default function Dashboard() {
   const [nowTs, setNowTs] = useState(() => Date.now());
 
   const onChainReady = walletReady && Boolean(walletAddress) && isOnChainConfigured();
+  const driftBestAsset = useMemo(() => {
+    if (!driftTelemetry) {
+      return null;
+    }
+    const entries = Object.entries(driftTelemetry.liveFunding);
+    entries.sort((a, b) => b[1] - a[1]);
+    const best = entries[0]?.[0];
+    if (best === "SOL" || best === "BTC" || best === "ETH") {
+      return best;
+    }
+    return null;
+  }, [driftTelemetry]);
+
   const aiSignalInput = useMemo(
     () => ({
       healthRatio: snapshot?.overview.healthRatio ?? null,
@@ -166,10 +182,10 @@ export default function Dashboard() {
       usdcPrice: snapshot?.risk.usdcPrice ?? null,
       emergencyMode: Boolean(onChainSnapshot?.emergencyMode || snapshot?.risk.emergencyState),
       depositPaused: Boolean(onChainSnapshot?.paused || snapshot?.risk.depositPaused),
-      activeAsset: snapshot?.signal.activeAsset ?? "SOL",
-      liveFunding: snapshot?.liveFunding ?? null,
+      activeAsset: snapshot?.signal.activeAsset ?? driftBestAsset ?? "SOL",
+      liveFunding: snapshot?.liveFunding ?? driftTelemetry?.liveFunding ?? null,
     }),
-    [onChainSnapshot?.emergencyMode, onChainSnapshot?.paused, snapshot],
+    [driftBestAsset, driftTelemetry?.liveFunding, onChainSnapshot?.emergencyMode, onChainSnapshot?.paused, snapshot],
   );
 
   const loadSnapshot = useCallback(async () => {
@@ -211,7 +227,7 @@ export default function Dashboard() {
   const loadActivity = useCallback(async () => {
     if (isOnChainConfigured()) {
       try {
-        const chainItems = await fetchOnChainActivity(25);
+        const chainItems = await fetchOnChainActivity(25, walletAddress ?? undefined);
         setActivityItems(chainItems);
         setActivityStatus(
           chainItems.length > 0
@@ -231,6 +247,39 @@ export default function Dashboard() {
     } catch {
       setActivityItems([]);
       setActivityStatus("No verifiable activity data.");
+    }
+  }, [walletAddress]);
+
+  const loadDriftTelemetry = useCallback(async () => {
+    try {
+      const next = await fetchDriftTelemetry();
+      setDriftTelemetry((previous) => {
+        if (!previous) {
+          return next;
+        }
+        const mergedSeries = [...previous.fundingSeries];
+        const point = next.fundingSeries[0];
+        if (point) {
+          if (mergedSeries.length > 0 && mergedSeries[mergedSeries.length - 1].time === point.time) {
+            mergedSeries[mergedSeries.length - 1] = point;
+          } else {
+            mergedSeries.push(point);
+          }
+        }
+        while (mergedSeries.length > 24) {
+          mergedSeries.shift();
+        }
+
+        return {
+          generatedAt: next.generatedAt,
+          liveFunding: next.liveFunding,
+          fundingSeries: mergedSeries,
+        };
+      });
+      setDriftStatus("Drift funding feed synced.");
+    } catch {
+      setDriftTelemetry(null);
+      setDriftStatus("Drift funding feed unavailable.");
     }
   }, []);
 
@@ -256,14 +305,14 @@ export default function Dashboard() {
   }, [aiSignalInput, onChainSnapshot, snapshot]);
 
   useEffect(() => {
-    void Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
+    void Promise.all([loadSnapshot(), loadActivity(), loadOnChain(), loadDriftTelemetry()]);
     const interval = window.setInterval(() => {
-      void Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
+      void Promise.all([loadSnapshot(), loadActivity(), loadOnChain(), loadDriftTelemetry()]);
     }, POLL_INTERVAL_MS);
     return () => {
       window.clearInterval(interval);
     };
-  }, [loadActivity, loadOnChain, loadSnapshot]);
+  }, [loadActivity, loadDriftTelemetry, loadOnChain, loadSnapshot]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -398,6 +447,16 @@ export default function Dashboard() {
     return Math.max(0, ((sevenDaysAgo - latest) / sevenDaysAgo) * 100);
   }, [onChainNavSeries, snapshot]);
 
+  const driftDerivedApy = useMemo(() => {
+    if (!driftTelemetry) {
+      return null;
+    }
+    const rates = Object.values(driftTelemetry.liveFunding);
+    const best = Math.max(...rates);
+    const annualized = Math.max(0, best * 3 * 365 * 100);
+    return annualized;
+  }, [driftTelemetry]);
+
   const metrics = useMemo(
     () => [
       {
@@ -415,10 +474,24 @@ export default function Dashboard() {
       },
       {
         label: "Current APY",
-        value: snapshot ? formatPercent(snapshot.overview.currentApyPct, 1) : onChainSnapshot ? "Pending feed" : "Unavailable",
-        change: snapshot ? formatSignedPercent(snapshot.overview.apyChangePct) : onChainSnapshot ? "On-chain only" : "Unavailable",
+        value: snapshot
+          ? formatPercent(snapshot.overview.currentApyPct, 1)
+          : driftDerivedApy !== null
+            ? formatPercent(driftDerivedApy, 1)
+            : onChainSnapshot
+              ? "Pending feed"
+              : "Unavailable",
+        change: snapshot
+          ? formatSignedPercent(snapshot.overview.apyChangePct)
+          : driftTelemetry
+            ? "Drift live"
+            : onChainSnapshot
+              ? "On-chain only"
+              : "Unavailable",
         tone: snapshot
           ? (snapshot.overview.apyChangePct >= 0 ? "positive" : "negative")
+          : driftTelemetry
+            ? "positive"
           : "neutral",
         icon: TrendingUp,
       },
@@ -463,7 +536,7 @@ export default function Dashboard() {
         icon: Activity,
       },
     ],
-    [onChainSnapshot, snapshot],
+    [driftDerivedApy, driftTelemetry, onChainSnapshot, snapshot],
   );
 
   const effectiveSignalAction = aiSignal?.action ?? snapshot?.signal.action ?? null;
@@ -644,6 +717,10 @@ export default function Dashboard() {
                   }`}
                 />
                 <span className="text-slate-300">{activityStatus}</span>
+              </div>
+              <div className="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 h-fit">
+                <span className={`w-2 h-2 rounded-full ${driftTelemetry ? "bg-emerald-400" : "bg-slate-500"}`} />
+                <span className="text-slate-300">{driftStatus}</span>
               </div>
             </div>
           </div>
@@ -1061,9 +1138,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="h-64">
-              {snapshot ? (
+              {(snapshot || driftTelemetry?.fundingSeries.length) ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={snapshot.fundingSeries}>
+                  <LineChart data={snapshot?.fundingSeries ?? driftTelemetry?.fundingSeries ?? []}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#32324a" />
                     <XAxis dataKey="time" stroke="#64748b" fontSize={12} />
                     <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${(v * 100).toFixed(2)}%`} />
