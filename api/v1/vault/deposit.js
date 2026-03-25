@@ -4,7 +4,7 @@ import { handleOptions, parseBody, sendJson } from "../../_utils/common.js";
 
 const METHODS = "POST,OPTIONS";
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (handleOptions(req, res, METHODS)) {
     return;
   }
@@ -17,7 +17,7 @@ export default function handler(req, res) {
   try {
     guardMutationRequest(req);
     const payload = parseBody(req.body);
-    sendJson(res, 200, applyDeposit(payload), METHODS);
+    sendJson(res, 200, await applyDeposit(payload), METHODS);
   } catch (error) {
     if (error instanceof ApiSecurityError || error instanceof TelemetryHttpError) {
       sendJson(res, error.statusCode, { error: error.message }, METHODS);

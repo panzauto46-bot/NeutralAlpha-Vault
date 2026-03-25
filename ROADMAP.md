@@ -135,6 +135,7 @@ Exit criteria:
 - [x] Emergency mode guard added to `deposit` instruction
 - [x] `vault-client` now creates missing USDC ATA before deposit/withdraw
 - [x] API mutation hardening added (optional API key + in-memory rate limiting)
+- [x] Shared simulation state persistence added for serverless consistency (Vercel KV / Upstash fallback)
 - [x] Strategy/architecture docs aligned with current implementation (Qwen + rule fallback, Anchor vault)
 - [x] JS dependency risk reduced by removing direct `@solana/spl-token` dependency
 - [x] Vite single-file inlining switched to opt-in mode (`VITE_SINGLEFILE=1`)

@@ -3,7 +3,7 @@ import { handleOptions, sendJson } from "../../_utils/common.js";
 
 const METHODS = "GET,OPTIONS";
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (handleOptions(req, res, METHODS)) {
     return;
   }
@@ -13,5 +13,5 @@ export default function handler(req, res) {
     return;
   }
 
-  sendJson(res, 200, getActivityPayload(), METHODS);
+  sendJson(res, 200, await getActivityPayload(), METHODS);
 }

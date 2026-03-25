@@ -80,12 +80,12 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && pathname === "/api/v1/dashboard") {
-      json(res, 200, getDashboardSnapshot());
+      json(res, 200, await getDashboardSnapshot());
       return;
     }
 
     if (req.method === "GET" && pathname === "/api/v1/vault/activity") {
-      json(res, 200, getActivityPayload());
+      json(res, 200, await getActivityPayload());
       return;
     }
 
@@ -99,21 +99,21 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/v1/risk/simulate") {
       guardMutationRequest(req);
       const body = await parseBody(req);
-      json(res, 200, applyRiskSimulation(body));
+      json(res, 200, await applyRiskSimulation(body));
       return;
     }
 
     if (req.method === "POST" && pathname === "/api/v1/vault/deposit") {
       guardMutationRequest(req);
       const body = await parseBody(req);
-      json(res, 200, applyDeposit(body));
+      json(res, 200, await applyDeposit(body));
       return;
     }
 
     if (req.method === "POST" && pathname === "/api/v1/vault/withdraw") {
       guardMutationRequest(req);
       const body = await parseBody(req);
-      json(res, 200, applyWithdraw(body));
+      json(res, 200, await applyWithdraw(body));
       return;
     }
 

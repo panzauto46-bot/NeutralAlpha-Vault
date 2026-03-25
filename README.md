@@ -275,6 +275,14 @@ DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/c
 SIM_API_KEY=
 SIM_RATE_LIMIT_WINDOW_MS=60000
 SIM_RATE_LIMIT_MAX=60
+
+# Optional (recommended on Vercel): shared simulation state storage
+KV_REST_API_URL=
+KV_REST_API_TOKEN=
+# Alternative naming if using Upstash directly
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+SIM_STATE_STORE_KEY=neutralalpha:telemetry:state:v1
 ```
 
 For Vercel, add the same variables in `Project Settings → Environment Variables`, then redeploy.
@@ -412,6 +420,7 @@ npm run vault:withdraw -- --shares 1000000 # Withdraw shares
 - Mutating endpoints (`/vault/deposit`, `/vault/withdraw`, `/risk/simulate`) enforce in-memory rate limiting.
 - If `SIM_API_KEY` is configured, send `X-API-Key: <value>` on mutating requests.
 - Frontend can pass key via `VITE_SIM_API_KEY`.
+- For consistent dashboard/activity state on serverless, configure `KV_REST_API_URL` + `KV_REST_API_TOKEN`.
 
 ### Dashboard Snapshot Response
 
