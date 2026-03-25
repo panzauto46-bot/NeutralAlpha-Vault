@@ -1,9 +1,10 @@
-import { generateAiSignal } from "../../../lib/aiSignalEngine.mjs";
+import { guardMutationRequest, ApiSecurityError } from "../../../lib/apiSecurity.mjs";
+import { TelemetryHttpError, applyDeposit } from "../../../lib/telemetryState.mjs";
 import { handleOptions, parseBody, sendJson } from "../../_utils/common.js";
 
 const METHODS = "POST,OPTIONS";
 
-export default async function handler(req, res) {
+export default function handler(req, res) {
   if (handleOptions(req, res, METHODS)) {
     return;
   }
@@ -14,10 +15,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    guardMutationRequest(req);
     const payload = parseBody(req.body);
-    const decision = await generateAiSignal(payload);
-    sendJson(res, 200, decision, METHODS);
+    sendJson(res, 200, applyDeposit(payload), METHODS);
   } catch (error) {
+    if (error instanceof ApiSecurityError || error instanceof TelemetryHttpError) {
+      sendJson(res, error.statusCode, { error: error.message }, METHODS);
+      return;
+    }
     const message = error instanceof Error ? error.message : "Unknown error";
     sendJson(res, 500, { error: message }, METHODS);
   }

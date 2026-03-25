@@ -10,13 +10,13 @@ import {
   TransactionInstruction,
 } from "@solana/web3.js";
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  MINT_SIZE,
-  TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  MINT_SIZE,
+  TOKEN_PROGRAM_ID,
+} from "./lib/splTokenLite.mjs";
 
 const DEFAULT_RPC = "https://api.testnet.solana.com";
 const DEFAULT_LOCK_PERIOD_SECS = 90 * 24 * 60 * 60;
@@ -367,7 +367,7 @@ async function runDeposit() {
   if (!vaultState) {
     throw new Error(`vault_state is not initialized: ${pdas.vaultState.toBase58()}`);
   }
-  const { ata: depositorUsdcAta } = await maybeCreateAtaIx(
+  const { ata: depositorUsdcAta, ix: createUsdcAtaIx } = await maybeCreateAtaIx(
     connection,
     payer.publicKey,
     payer.publicKey,
@@ -398,6 +398,9 @@ async function runDeposit() {
   });
 
   const ixs = [];
+  if (createUsdcAtaIx) {
+    ixs.push(createUsdcAtaIx);
+  }
   if (createShareAtaIx) {
     ixs.push(createShareAtaIx);
   }
@@ -423,13 +426,13 @@ async function runWithdraw() {
     throw new Error(`vault_state is not initialized: ${pdas.vaultState.toBase58()}`);
   }
 
-  const { ata: depositorUsdcAta } = await maybeCreateAtaIx(
+  const { ata: depositorUsdcAta, ix: createUsdcAtaIx } = await maybeCreateAtaIx(
     connection,
     payer.publicKey,
     payer.publicKey,
     usdcMint,
   );
-  const { ata: depositorShareAta } = await maybeCreateAtaIx(
+  const { ata: depositorShareAta, ix: createShareAtaIx } = await maybeCreateAtaIx(
     connection,
     payer.publicKey,
     payer.publicKey,
@@ -452,7 +455,16 @@ async function runWithdraw() {
     data: encodeU64Ix("withdraw", shareAmount),
   });
 
-  await sendAndConfirm(connection, payer, [withdrawIx], "withdraw");
+  const ixs = [];
+  if (createUsdcAtaIx) {
+    ixs.push(createUsdcAtaIx);
+  }
+  if (createShareAtaIx) {
+    ixs.push(createShareAtaIx);
+  }
+  ixs.push(withdrawIx);
+
+  await sendAndConfirm(connection, payer, ixs, "withdraw");
 }
 
 async function runEmergencyMode() {

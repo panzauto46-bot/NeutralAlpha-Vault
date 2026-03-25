@@ -10,11 +10,11 @@ import {
   type Finality,
 } from "@solana/web3.js";
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@/services/splTokenLite";
 import idlJson from "@/idl/neutralalpha_vault.json";
 import {
   SOLANA_RPC_URL,
@@ -697,9 +697,13 @@ export async function fetchOnChainActivity(limit = 20, walletFilter?: string): P
           return null;
         }
 
-        let amountUsd = decoded ? fromBaseUnits(decoded.amountBaseUnits) : 0;
-        if (amountUsd <= 0 && walletFilter && (action === "DEPOSIT" || action === "WITHDRAW")) {
-          amountUsd = deriveAmountFromTokenBalances(tx as never, walletFilter);
+        let amountUsd = 0;
+        if (wallet !== "unknown" && (action === "DEPOSIT" || action === "WITHDRAW")) {
+          amountUsd = deriveAmountFromTokenBalances(tx as never, wallet);
+        }
+        if (amountUsd <= 0 && decoded?.action === "DEPOSIT") {
+          // Deposit instruction argument is USDC base units, so this fallback is safe.
+          amountUsd = fromBaseUnits(decoded.amountBaseUnits);
         }
 
         return {

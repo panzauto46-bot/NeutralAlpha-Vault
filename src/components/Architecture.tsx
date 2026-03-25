@@ -5,8 +5,8 @@ export default function Architecture() {
   const onChainComponents = [
     {
       name: "Vault Contract",
-      tech: "Ranger Earn SDK",
-      role: "Holds USDC, mints shares, handles withdrawals",
+      tech: "Anchor Program (custom)",
+      role: "Holds USDC, mints shares, enforces lock and emergency controls",
       color: "green",
     },
     {
@@ -32,14 +32,14 @@ export default function Architecture() {
   const offChainComponents = [
     {
       name: "AI Signal Engine",
-      tech: "Python + XGBoost",
-      role: "Predicts funding rates and signal actions",
+      tech: "Node.js + Qwen + rule fallback",
+      role: "Generates HOLD / REBALANCE / ROTATE_ASSET decisions",
       icon: Cpu,
     },
     {
       name: "Data Pipeline",
-      tech: "Helius RPC + WebSocket",
-      role: "Streams real-time market and account data",
+      tech: "Drift Data API + local telemetry engine",
+      role: "Streams funding, risk, and vault state snapshots",
       icon: Database,
     },
     {
@@ -58,11 +58,11 @@ export default function Architecture() {
 
   const protocols = [
     { name: "Solana", desc: "Base Layer", logo: "S" },
-    { name: "Ranger Earn", desc: "Vault SDK", logo: "RE" },
+    { name: "Anchor", desc: "Program Framework", logo: "A" },
     { name: "Drift", desc: "Perpetuals", logo: "D" },
     { name: "Jupiter", desc: "Aggregator", logo: "J" },
     { name: "Pyth", desc: "Oracles", logo: "P" },
-    { name: "Helius", desc: "RPC", logo: "H" },
+    { name: "DashScope", desc: "Qwen LLM API", logo: "Q" },
   ];
 
   const flowSteps = [

@@ -76,8 +76,34 @@ pub mod neutralalpha_vault {
     pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         require!(amount > 0, VaultError::InvalidAmount);
         require!(!ctx.accounts.vault_state.paused, VaultError::VaultPaused);
+        require!(
+            !ctx.accounts.vault_state.emergency_mode,
+            VaultError::VaultEmergencyMode
+        );
 
         let vault_state = &mut ctx.accounts.vault_state;
+        let user_position = &mut ctx.accounts.user_position;
+
+        if user_position.owner == Pubkey::default() {
+            user_position.owner = ctx.accounts.depositor.key();
+            user_position.bump = ctx.bumps.user_position;
+        }
+        require!(
+            user_position.owner == ctx.accounts.depositor.key(),
+            VaultError::InvalidPositionOwner
+        );
+
+        if ctx.accounts.depositor_share.amount < user_position.shares {
+            user_position.shares = ctx.accounts.depositor_share.amount;
+            if user_position.shares == 0 {
+                user_position.unlock_ts = 0;
+                user_position.last_deposit_ts = 0;
+            }
+        }
+        require!(
+            ctx.accounts.depositor_share.amount == user_position.shares,
+            VaultError::ShareAccountOutOfSync
+        );
 
         let cpi_transfer = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -126,11 +152,6 @@ pub mod neutralalpha_vault {
             .ok_or(VaultError::MathOverflow)?;
 
         let clock = Clock::get()?;
-        let user_position = &mut ctx.accounts.user_position;
-        if user_position.owner == Pubkey::default() {
-            user_position.owner = ctx.accounts.depositor.key();
-            user_position.bump = ctx.bumps.user_position;
-        }
         user_position.shares = user_position
             .shares
             .checked_add(shares_to_mint)
@@ -154,8 +175,23 @@ pub mod neutralalpha_vault {
             user_position.owner == ctx.accounts.depositor.key(),
             VaultError::InvalidPositionOwner
         );
+        if ctx.accounts.depositor_share.amount < user_position.shares {
+            user_position.shares = ctx.accounts.depositor_share.amount;
+            if user_position.shares == 0 {
+                user_position.unlock_ts = 0;
+                user_position.last_deposit_ts = 0;
+            }
+        }
+        require!(
+            ctx.accounts.depositor_share.amount == user_position.shares,
+            VaultError::ShareAccountOutOfSync
+        );
         require!(
             user_position.shares >= share_amount,
+            VaultError::InsufficientShares
+        );
+        require!(
+            ctx.accounts.depositor_share.amount >= share_amount,
             VaultError::InsufficientShares
         );
         require!(vault_state.total_shares > 0, VaultError::InvalidVaultState);
@@ -508,6 +544,8 @@ pub enum VaultError {
     InvalidAmount,
     #[msg("Vault is paused.")]
     VaultPaused,
+    #[msg("Vault is in emergency mode.")]
+    VaultEmergencyMode,
     #[msg("Math overflow occurred.")]
     MathOverflow,
     #[msg("Calculated share amount is too small.")]
@@ -532,4 +570,6 @@ pub enum VaultError {
     AccountFlagLengthMismatch,
     #[msg("External CPI data is empty.")]
     InvalidExternalData,
+    #[msg("Share token account is out of sync with recorded position. External share transfers are unsupported.")]
+    ShareAccountOutOfSync,
 }

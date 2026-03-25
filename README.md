@@ -167,8 +167,8 @@ An **AI signal engine** (Qwen LLM via DashScope API, with rule-based fallback) c
 │     │              │                 │                            │
 │     ▼              ▼                 ▼                            │
 │ ┌────────┐   ┌──────────┐   ┌─────────────┐   ┌──────────────┐ │
-│ │ Drift  │   │ Jupiter  │   │ Pyth Oracle │   │ Ranger Earn  │ │
-│ │Protocol│   │Aggregator│   │ Price Feeds │   │    SDK       │ │
+│ │ Drift  │   │ Jupiter  │   │ Pyth Oracle │   │ Anchor Vault  │ │
+│ │Protocol│   │Aggregator│   │ Price Feeds │   │  Program     │ │
 │ │(Perps) │   │ (Swaps)  │   │             │   │  (Vault)     │ │
 │ └────────┘   └──────────┘   └─────────────┘   └──────────────┘ │
 └──────────────────────────────────────────────────────────────────┘
@@ -179,11 +179,11 @@ An **AI signal engine** (Qwen LLM via DashScope API, with rule-based fallback) c
 | Protocol | Role | Integration |
 |----------|------|-------------|
 | **Solana** | Base layer blockchain | Runtime |
-| **Ranger Earn SDK** | Vault framework | Vault lifecycle |
+| **Anchor Program** | Vault framework | Vault lifecycle |
 | **Drift Protocol** | Perpetual futures (short positions) | CPI gateway |
 | **Jupiter Aggregator** | Spot swaps (best execution) | CPI gateway |
 | **Pyth Network** | Oracle price feeds | Delta calculation |
-| **Helius** | RPC & WebSocket data streams | Data pipeline |
+| **DashScope (Qwen)** | LLM API provider | AI signal generation |
 
 ### Tech Stack
 
@@ -266,10 +266,15 @@ VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
 VITE_VAULT_PROGRAM_ID=QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD
 VITE_USDC_MINT=4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ
 VITE_API_BASE_URL=/api/v1
+VITE_SIM_API_KEY=
 
 # Server-side only (AI Signal Engine)
 DASHSCOPE_API_KEY=<your_dashscope_api_key>
 DASHSCOPE_MODEL=qwen-plus
+DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
+SIM_API_KEY=
+SIM_RATE_LIMIT_WINDOW_MS=60000
+SIM_RATE_LIMIT_MAX=60
 ```
 
 For Vercel, add the same variables in `Project Settings → Environment Variables`, then redeploy.
@@ -365,7 +370,7 @@ npm run vault:withdraw -- --shares 1000000 # Withdraw shares
 | **Liquidation** | Health ratio > 1.5 maintained | Emergency exit if HR < 1.15 | ✅ Active |
 | **Execution Slippage** | Jupiter best-route + 0.3% cap | TX rejected if > 0.3% | ✅ Active |
 | **USDC Depeg** | Full unwind trigger | USDC < $0.98 | ✅ Active |
-| **Smart Contract** | Audited protocols (Drift, Ranger) | Continuous monitoring | ⚠️ Disclosed |
+| **Smart Contract** | Audited protocols (Drift, Anchor) | Continuous monitoring | ⚠️ Disclosed |
 
 ### Drawdown Controls
 
@@ -400,6 +405,13 @@ npm run vault:withdraw -- --shares 1000000 # Withdraw shares
 | `POST` | `/vault/deposit` | Simulate USDC deposit |
 | `POST` | `/vault/withdraw` | Simulate USDC withdrawal |
 | `POST` | `/risk/simulate` | Force risk scenario for testing |
+| `POST` | `/ai/signal` | Generate AI action (`HOLD | REBALANCE | ROTATE_ASSET`) |
+
+### Mutation Security
+
+- Mutating endpoints (`/vault/deposit`, `/vault/withdraw`, `/risk/simulate`) enforce in-memory rate limiting.
+- If `SIM_API_KEY` is configured, send `X-API-Key: <value>` on mutating requests.
+- Frontend can pass key via `VITE_SIM_API_KEY`.
 
 ### Dashboard Snapshot Response
 
@@ -432,6 +444,7 @@ npm run vault:withdraw -- --shares 1000000 # Withdraw shares
 ```bash
 curl -X POST http://localhost:8787/api/v1/vault/deposit \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: $SIM_API_KEY" \
   -d '{"amountUsd": 2500, "wallet": "guest", "slippagePct": 0.1}'
 ```
 
@@ -476,7 +489,8 @@ NeutralAlpha-Vault/
 │   │   ├── dashboardApi.ts      # REST API client (7s timeout)
 │   │   ├── aiSignalApi.ts       # AI signal engine client
 │   │   ├── driftDataApi.ts      # Live Drift Protocol funding feed
-│   │   └── vaultProgram.ts      # On-chain vault interaction (725 lines)
+│   │   ├── vaultProgram.ts      # On-chain vault interaction (725 lines)
+│   │   └── splTokenLite.ts      # Minimal SPL helpers (ATA + constants)
 │   ├── 📁 config/
 │   │   └── network.ts           # Solana network config + explorer URLs
 │   ├── 📁 idl/
@@ -488,10 +502,13 @@ NeutralAlpha-Vault/
 │       └── cn.ts                # className utility (clsx + twMerge)
 │
 ├── 📁 lib/                      # Shared Libraries
-│   └── aiSignalEngine.mjs       # AI signal: Qwen LLM + rule engine fallback
+│   ├── aiSignalEngine.mjs       # AI signal: Qwen LLM + rule engine fallback
+│   ├── telemetryState.mjs       # Shared telemetry state for Node + Vercel APIs
+│   └── apiSecurity.mjs          # Optional API key auth + mutation rate limiter
 │
 ├── 📁 api/                      # Vercel Serverless Functions
-│   └── v1/ai/signal.js          # AI signal endpoint (serverless)
+│   ├── _utils/common.js         # CORS + body parsing helpers
+│   └── v1/*                     # health, contracts, dashboard, vault/*, risk/simulate, ai/signal
 │
 ├── 📁 server/                   # Backend API
 │   └── index.mjs                # Node.js risk engine (476 lines, zero deps)
@@ -510,7 +527,8 @@ NeutralAlpha-Vault/
 │   ├── dev-stack.mjs            # Run API + Web simultaneously
 │   ├── smoke-e2e.mjs            # E2E smoke tests (7 assertions)
 │   ├── testnet-harness.mjs      # Solana testnet transaction harness
-│   └── vault-client.mjs         # CLI vault operations (init/deposit/withdraw)
+│   ├── vault-client.mjs         # CLI vault operations (init/deposit/withdraw)
+│   └── lib/splTokenLite.mjs     # Script-side SPL helpers (no @solana/spl-token)
 │
 └── 📁 assets/                   # Static assets
     ├── banner.png               # Project banner

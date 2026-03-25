@@ -1,7 +1,7 @@
 # NeutralAlpha Vault Roadmap
 
 Source: `NeutralAlpha_Vault_PRD.docx` (Version 1.0)  
-Last updated: 2026-03-22
+Last updated: 2026-03-25
 
 ## Goal
 
@@ -16,7 +16,8 @@ Build and ship an AI-driven delta-neutral USDC vault on Solana that meets PRD co
 
 - Frontend showcase is available (`React + Vite + Recharts`).
 - Dashboard now consumes live local API data with fallback mode.
-- Core on-chain vault and Drift/Jupiter/Pyth integrations are not yet implemented; AI/risk backend baseline now exists as local simulation API.
+- Core on-chain vault instructions are implemented on Anchor with testnet/devnet wiring.
+- Local simulation API and Vercel API routes are now aligned for dashboard + vault endpoints.
 
 ## PRD-Aligned Milestone Plan
 
@@ -27,7 +28,7 @@ Execution below keeps PRD milestone order and expected outputs.
 
 Focus: on-chain vault scaffold and basic delta-neutral mechanics.
 
-- [ ] Ranger Earn vault setup for USDC deposits and share minting
+- [ ] Anchor vault setup for USDC deposits and share minting
 - [x] Deposit/withdraw flow with 3-month rolling lock config (Anchor program implementation)
 - [ ] Drift CPI integration for short-perp open/close
 - [ ] Jupiter integration for spot leg swaps
@@ -42,9 +43,9 @@ Exit criteria:
 
 Focus: prediction, rebalance signal generation, and historical validation.
 
-- [ ] Data ingestion pipeline (Helius RPC/WebSocket + market/funding data)
+- [ ] Data ingestion pipeline (RPC + market/funding data)
 - [ ] Feature engineering for funding-rate and delta signals
-- [ ] Train XGBoost classifier to output `HOLD | REBALANCE | ROTATE_ASSET`
+- [ ] Train predictive classifier to output `HOLD | REBALANCE | ROTATE_ASSET`
 - [ ] Implement rotation policy among `SOL`, `BTC`, `ETH` per PRD thresholds
 - [ ] Backtesting module using historical window (Mar 2024 to Mar 2025)
 
@@ -92,7 +93,7 @@ Exit criteria:
 
 ### On-Chain
 
-- Ranger vault contract flow
+- Anchor vault contract flow
 - Drift CPI hedge management
 - Jupiter spot execution
 - Pyth-based health and price checks
@@ -124,6 +125,19 @@ Exit criteria:
 - [x] Strategy document (PRD + implementation notes)
 - [ ] 3-minute demo video
 - [x] Verified on-chain vault address (Solscan)
+
+## Hardening Sprint (2026-03-25)
+
+- [x] Active wallet provider wiring fixed for on-chain tx signing
+- [x] On-chain withdraw activity amount parsing fixed to use token-balance deltas
+- [x] Share position/token mismatch guardrails added on-chain
+- [x] Vercel API routes expanded (`health`, `contracts`, `dashboard`, `vault/*`, `risk/simulate`, `ai/signal`)
+- [x] Emergency mode guard added to `deposit` instruction
+- [x] `vault-client` now creates missing USDC ATA before deposit/withdraw
+- [x] API mutation hardening added (optional API key + in-memory rate limiting)
+- [x] Strategy/architecture docs aligned with current implementation (Qwen + rule fallback, Anchor vault)
+- [x] JS dependency risk reduced by removing direct `@solana/spl-token` dependency
+- [x] Vite single-file inlining switched to opt-in mode (`VITE_SINGLEFILE=1`)
 
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 

@@ -7,7 +7,7 @@ export interface DetectedWallet {
   provider: SolanaWalletProvider;
 }
 
-interface SolanaWalletProvider {
+export interface SolanaWalletProvider {
   isPhantom?: boolean;
   isBitKeep?: boolean;
   isBitget?: boolean;
@@ -26,6 +26,7 @@ interface WalletContextValue {
   walletReady: boolean;
   walletBusy: boolean;
   walletName: string | null;
+  walletProvider: SolanaWalletProvider | null;
   availableWallets: DetectedWallet[];
   showWalletModal: boolean;
   setShowWalletModal: (show: boolean) => void;
@@ -188,13 +189,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       walletReady,
       walletBusy,
       walletName,
+      walletProvider: activeProvider,
       availableWallets,
       showWalletModal,
       setShowWalletModal,
       connectWallet,
       disconnect,
     }),
-    [walletAddress, walletReady, walletBusy, walletName, availableWallets, showWalletModal, connectWallet, disconnect],
+    [
+      walletAddress,
+      walletReady,
+      walletBusy,
+      walletName,
+      activeProvider,
+      availableWallets,
+      showWalletModal,
+      connectWallet,
+      disconnect,
+    ],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

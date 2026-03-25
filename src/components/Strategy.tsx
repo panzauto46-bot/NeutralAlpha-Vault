@@ -63,11 +63,11 @@ export default function Strategy() {
     },
     {
       title: 'AI Rebalancing Engine',
-      description: 'Lightweight ML model (XGBoost) optimizes rebalancing timing to minimize costs.',
+      description: 'Hybrid signal engine combines Qwen LLM with deterministic fallback rules for safe execution.',
       details: [
-        'Monitors signals every 15 minutes',
-        'Predicts optimal rebalance timing',
-        'Reduces unnecessary trades by 30-40%',
+        'Evaluates telemetry on a 15-minute cadence',
+        'Falls back to hard risk rules when AI endpoint is unavailable',
+        'Outputs HOLD, REBALANCE, or ROTATE_ASSET with risk labels',
       ],
       icon: Bot,
     },

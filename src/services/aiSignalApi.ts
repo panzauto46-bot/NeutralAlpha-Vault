@@ -1,6 +1,7 @@
 import type { AiAction, AssetSymbol } from "@/types/dashboard";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+const API_KEY = (import.meta.env.VITE_SIM_API_KEY ?? "").trim();
 
 export interface AiSignalRequestPayload {
   healthRatio?: number | null;
@@ -30,6 +31,7 @@ export async function fetchAiSignal(payload: AiSignalRequestPayload): Promise<Ai
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
     },
     body: JSON.stringify(payload),
   });

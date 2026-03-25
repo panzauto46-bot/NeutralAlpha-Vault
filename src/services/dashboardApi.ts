@@ -1,6 +1,7 @@
 import type { DashboardSnapshot, VaultActivityItem, VaultMutationResponse } from "@/types/dashboard";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+const API_KEY = (import.meta.env.VITE_SIM_API_KEY ?? "").trim();
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
@@ -11,6 +12,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
         ...(init?.headers ?? {}),
       },
       signal: controller.signal,

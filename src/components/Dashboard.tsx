@@ -120,15 +120,8 @@ function formatCountdown(ms: number) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
-function getWalletProvider() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return window.phantom?.solana ?? window.solana ?? null;
-}
-
 export default function Dashboard() {
-  const { walletAddress, walletReady } = useWallet();
+  const { walletAddress, walletReady, walletProvider } = useWallet();
 
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [dataMode, setDataMode] = useState<DataMode>("unavailable");
@@ -160,7 +153,10 @@ export default function Dashboard() {
   const [activityItems, setActivityItems] = useState<VaultActivityItem[]>([]);
   const [nowTs, setNowTs] = useState(() => Date.now());
 
-  const onChainReady = walletReady && Boolean(walletAddress) && isOnChainConfigured();
+  const onChainReady = walletReady &&
+    Boolean(walletAddress) &&
+    Boolean(walletProvider && typeof walletProvider.signAndSendTransaction === "function") &&
+    isOnChainConfigured();
   const driftBestAsset = useMemo(() => {
     if (!driftTelemetry) {
       return null;
@@ -347,7 +343,10 @@ export default function Dashboard() {
     return Math.max(0, netAmount);
   }, [walletActivity]);
 
-  const estimatedShares = onChainSnapshot ? onChainSnapshot.userShares : simulatedShares;
+  const userShareBalance = onChainSnapshot ? onChainSnapshot.userShares : simulatedShares;
+  const estimatedWithdrawableUsd = onChainSnapshot
+    ? onChainSnapshot.userShares * onChainSnapshot.sharePrice
+    : simulatedShares;
 
   const unlockTsMs = useMemo(() => {
     if (onChainSnapshot?.userUnlockTs && onChainSnapshot.userUnlockTs > 0) {
@@ -362,12 +361,12 @@ export default function Dashboard() {
   const isDepositPaused = Boolean(onChainSnapshot?.paused || snapshot?.risk.depositPaused);
 
   const quickWithdrawOptions = useMemo(() => {
-    if (estimatedShares <= 0) {
+    if (estimatedWithdrawableUsd <= 0) {
       return [];
     }
-    const values = [0.25, 0.5, 1].map((factor) => Number((estimatedShares * factor).toFixed(2)));
+    const values = [0.25, 0.5, 1].map((factor) => Number((estimatedWithdrawableUsd * factor).toFixed(2)));
     return [...new Set(values)].filter((value) => value > 0);
-  }, [estimatedShares]);
+  }, [estimatedWithdrawableUsd]);
 
   const onChainNavSeries = useMemo(() => {
     if (!onChainSnapshot) {
@@ -618,11 +617,10 @@ export default function Dashboard() {
     setDepositMessage(null);
 
     try {
-      const provider = getWalletProvider();
-      if (!provider) {
+      if (!walletProvider) {
         throw new Error("Wallet provider not found in browser.");
       }
-      const result = await sendOnChainDeposit(provider, walletAddress, amount);
+      const result = await sendOnChainDeposit(walletProvider, walletAddress, amount);
       setLatestTx({ action: "DEPOSIT", signature: result.signature, explorerUrl: result.explorerUrl });
       setDepositMessage(`Deposit confirmed on-chain: ${result.signature.slice(0, 8)}...`);
 
@@ -651,8 +649,8 @@ export default function Dashboard() {
       setWithdrawMessage("Enter a valid withdraw amount.");
       return;
     }
-    if (amount > estimatedShares) {
-      setWithdrawMessage("Withdraw amount exceeds your available shares.");
+    if (amount > estimatedWithdrawableUsd) {
+      setWithdrawMessage("Withdraw amount exceeds your estimated withdrawable value.");
       return;
     }
 
@@ -660,11 +658,10 @@ export default function Dashboard() {
     setWithdrawMessage(null);
 
     try {
-      const provider = getWalletProvider();
-      if (!provider) {
+      if (!walletProvider) {
         throw new Error("Wallet provider not found in browser.");
       }
-      const result = await sendOnChainWithdraw(provider, walletAddress, amount);
+      const result = await sendOnChainWithdraw(walletProvider, walletAddress, amount);
       setLatestTx({ action: "WITHDRAW", signature: result.signature, explorerUrl: result.explorerUrl });
       setWithdrawMessage(`Withdraw confirmed on-chain: ${result.signature.slice(0, 8)}...`);
 
@@ -869,7 +866,7 @@ export default function Dashboard() {
               <h3 className="text-lg font-semibold text-white">Vault Actions</h3>
             </div>
             <div className="mb-4 text-xs text-slate-500 space-y-1">
-              <p>Wallet: {walletAddress ? shortWallet(walletAddress) : walletReady ? "not connected" : "Phantom not detected"}</p>
+              <p>Wallet: {walletAddress ? shortWallet(walletAddress) : walletReady ? "not connected" : "wallet extension not detected"}</p>
               <p>USDC price: {snapshot ? `$${snapshot.risk.usdcPrice.toFixed(4)}` : "Feed pending"}</p>
               <p>7d drawdown: {onChainDrawdown7dPct !== null ? formatPercent(onChainDrawdown7dPct, 2) : "Feed pending"}</p>
               <p>Mode: {onChainReady ? "On-chain only" : "Read-only (connect wallet)"}</p>
@@ -878,8 +875,12 @@ export default function Dashboard() {
               <p className="text-xs text-slate-500 mb-2">Your Position</p>
               <div className="space-y-1 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Shares Balance</span>
-                  <span className="text-white font-semibold">{formatUsd(estimatedShares)}</span>
+                  <span className="text-slate-400">Share Balance</span>
+                  <span className="text-white font-semibold">{userShareBalance.toFixed(6)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Claim Value (est.)</span>
+                  <span className="text-white font-semibold">{formatUsd(estimatedWithdrawableUsd)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Lock Status</span>
@@ -980,16 +981,16 @@ export default function Dashboard() {
             </div>
             <button
               onClick={() => void handleWithdrawClick()}
-              disabled={withdrawPending || !onChainReady || isLocked || estimatedShares <= 0}
+              disabled={withdrawPending || !onChainReady || isLocked || estimatedWithdrawableUsd <= 0}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold hover:from-blue-400 hover:to-cyan-400 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isLocked
                 ? "Locked"
                 : withdrawPending
                   ? "Processing..."
-                    : onChainReady
-                      ? "Withdraw On-Chain"
-                      : "Connect Wallet to Withdraw"}
+                  : onChainReady
+                    ? "Withdraw On-Chain"
+                    : "Connect Wallet to Withdraw"}
             </button>
             {withdrawMessage ? <p className="text-xs text-slate-400 text-center mt-3">{withdrawMessage}</p> : null}
 
