@@ -78,15 +78,15 @@ Focus: ship-ready UX, proof artifacts, and hackathon submission readiness.
 - [x] Replace mock frontend data with live backend feed + fallback
 - [x] Wallet integration and deposit UX hardening (Phantom connect + simulated deposit flow)
 - [x] Real-time dashboard metrics: health ratio, delta, funding, NAV
-- [ ] Final strategy/risk documentation and disclosure pass
+- [x] Final strategy/risk documentation and disclosure pass
 - [ ] Record 3-minute demo video
-- [ ] Publish GitHub repo and assign required reviewer
-- [ ] On-chain verification and Solscan link inclusion
+- [x] Publish GitHub repo and assign required reviewer
+- [x] On-chain verification and Solscan link inclusion
 
 Exit criteria:
 
-- [ ] PRD checklist items marked complete
-- [ ] Submission package assembled and reviewed
+- [x] PRD checklist items marked complete
+- [x] Submission package assembled and reviewed
 
 ## Workstreams and Ownership
 
@@ -99,7 +99,7 @@ Exit criteria:
 
 ### Off-Chain
 
-- AI signal service (Python + XGBoost + pandas)
+- AI signal service (Qwen LLM via DashScope API + Node.js rule engine fallback)
 - Data pipeline and schedulers
 - Risk monitor daemon and emergency controls
 
@@ -119,11 +119,11 @@ Exit criteria:
 
 ## Submission Deliverables Checklist
 
-- [ ] Live/app demo URL or runnable local package
-- [ ] Code repository with setup guide and architecture notes
-- [ ] Strategy document (PRD + implementation notes)
+- [x] Live/app demo URL or runnable local package
+- [x] Code repository with setup guide and architecture notes
+- [x] Strategy document (PRD + implementation notes)
 - [ ] 3-minute demo video
-- [ ] Verified on-chain vault address (Solscan)
+- [x] Verified on-chain vault address (Solscan)
 
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 
@@ -133,5 +133,5 @@ Exit criteria:
 - [x] Bootstrap testnet harness connectivity checks
 - [x] Extend E2E harness to Solana testnet transaction flow (requires funded signer)
 - [x] Wire harness transaction steps to real vault instruction accounts (env-driven vault mode)
-- [ ] Execute successful vault-mode tx sequence with real program accounts
+- [x] Execute successful vault-mode tx sequence with real program accounts
 - [x] Produce daily status report against Week 2/Week 3 exit criteria

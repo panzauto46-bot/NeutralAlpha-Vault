@@ -33,6 +33,11 @@
   <a href="#-api-reference">API</a>
 </p>
 
+<p align="center">
+  <a href="https://neutral-alpha-vault.vercel.app"><img src="https://img.shields.io/badge/Live_Demo-00C853?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo" /></a>
+  <a href="https://explorer.solana.com/address/QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD?cluster=devnet"><img src="https://img.shields.io/badge/Solscan_Devnet-362D59?style=for-the-badge&logo=solana&logoColor=white" alt="Solscan" /></a>
+</p>
+
 ---
 
 ## 📌 Overview
@@ -41,7 +46,7 @@
 
 The vault simultaneously holds a **spot long** (via Jupiter) and a **perpetual short** (via Drift Protocol) on the same asset, creating a **delta-neutral position**. When perpetual funding rates are positive (longs pay shorts), the vault earns yield — without being exposed to crypto price movements.
 
-An **AI signal engine** (XGBoost) continuously monitors market conditions every 15 minutes, deciding whether to **hold**, **rebalance**, or **rotate** to a different asset pair (SOL, BTC, ETH) for optimal yield.
+An **AI signal engine** (Qwen LLM via DashScope API, with rule-based fallback) continuously monitors market conditions every 15 minutes, deciding whether to **hold**, **rebalance**, or **rotate** to a different asset pair (SOL, BTC, ETH) for optimal yield.
 
 | Parameter | Value |
 |-----------|-------|
@@ -93,7 +98,7 @@ An **AI signal engine** (XGBoost) continuously monitors market conditions every 
 2. **Position Setup** → 50% as collateral for Drift short, 50% swapped to spot via Jupiter
 3. **Delta Neutralization** → Short position exactly offsets spot — net directional exposure = 0
 4. **Earn Funding** → Shorts earn funding payments when rates are positive (~70%+ of the time)
-5. **AI Monitoring** → XGBoost model evaluates signals every 15 minutes, outputs `HOLD | REBALANCE | ROTATE_ASSET`
+5. **AI Monitoring** → Qwen LLM + rule engine evaluates signals every 15 minutes, outputs `HOLD | REBALANCE | ROTATE_ASSET`
 6. **Asset Rotation** → Dynamically rotates to highest-yielding perp pair (SOL, BTC, ETH)
 7. **Withdraw** → At maturity (3 months), positions unwound, USDC + earned yield returned
 
@@ -187,8 +192,9 @@ An **AI signal engine** (XGBoost) continuously monitors market conditions every 
 | **Frontend** | React 19, Vite 7, TailwindCSS v4, Framer Motion, Recharts, Lucide Icons |
 | **Backend** | Node.js (pure `node:http`, zero deps), simulation engine |
 | **On-Chain** | Rust, Anchor 0.30.1, anchor-spl |
-| **Wallet** | Phantom (connect/disconnect/account change events) |
-| **Fonts** | Inter (UI), JetBrains Mono (data/code) |
+| **AI Signal** | Qwen LLM (DashScope API) + rule-based fallback |
+| **Wallet** | Multi-wallet: Phantom, Bitget, Solflare, Backpack |
+| **Fonts** | Space Grotesk (UI), JetBrains Mono (data/code) |
 
 ---
 
@@ -257,9 +263,13 @@ Copy `.env.example` and set:
 ```bash
 VITE_SOLANA_NETWORK=devnet
 VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
-VITE_VAULT_PROGRAM_ID=<deployed_program_id>
-VITE_USDC_MINT=<devnet_usdc_mint>
+VITE_VAULT_PROGRAM_ID=QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD
+VITE_USDC_MINT=4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ
 VITE_API_BASE_URL=/api/v1
+
+# Server-side only (AI Signal Engine)
+DASHSCOPE_API_KEY=<your_dashscope_api_key>
+DASHSCOPE_MODEL=qwen-plus
 ```
 
 For Vercel, add the same variables in `Project Settings → Environment Variables`, then redeploy.
@@ -434,37 +444,57 @@ NeutralAlpha-Vault/
 │
 ├── 📄 README.md                 # This file
 ├── 📄 ROADMAP.md                # PRD-aligned milestone plan
+├── 📄 LICENSE                   # MIT License
 ├── 📄 package.json              # Dependencies & npm scripts
 ├── 📄 tsconfig.json             # TypeScript strict config
 ├── 📄 vite.config.ts            # Vite + React + TailwindCSS v4
+├── 📄 vercel.json               # Vercel deployment config (rewrites)
 ├── 📄 index.html                # Entry point (Google Fonts)
+├── 📄 .env.example              # Environment template
 │
 ├── 📁 src/                      # Frontend (React + TypeScript)
 │   ├── main.tsx                 # App bootstrap with WalletProvider
-│   ├── App.tsx                  # Root component composition
+│   ├── App.tsx                  # Root component + routing
 │   ├── index.css                # Design system (glass, gradients, animations)
 │   ├── 📁 components/
-│   │   ├── Navbar.tsx           # Navigation + Phantom wallet button
+│   │   ├── Navbar.tsx           # Navigation + multi-wallet button
 │   │   ├── Hero.tsx             # Landing section with key stats
-│   │   ├── Dashboard.tsx        # Live metrics, charts, deposit form
+│   │   ├── Dashboard.tsx        # Live metrics, charts, deposit/withdraw (1,298 lines)
 │   │   ├── Strategy.tsx         # Delta-neutral strategy explainer
 │   │   ├── RiskManagement.tsx   # Risk matrix + drawdown controls
 │   │   ├── Performance.tsx      # Yield projections + comparisons
 │   │   ├── Architecture.tsx     # Technical stack documentation
-│   │   └── Footer.tsx           # Links + social
+│   │   ├── Footer.tsx           # Links + social
+│   │   ├── WalletModal.tsx      # Multi-wallet selection modal
+│   │   └── AppErrorBoundary.tsx # Runtime error handler
+│   ├── 📁 pages/
+│   │   ├── LandingPage.tsx      # Landing page layout
+│   │   └── DashboardPage.tsx    # Wallet-gated dashboard layout
 │   ├── 📁 context/
-│   │   └── WalletContext.tsx    # Phantom wallet state management
+│   │   └── WalletContext.tsx    # Multi-wallet state (Phantom/Bitget/Solflare/Backpack)
 │   ├── 📁 services/
 │   │   ├── dashboardApi.ts      # REST API client (7s timeout)
-│   │   └── dashboardFallback.ts # Offline fallback data generator
+│   │   ├── aiSignalApi.ts       # AI signal engine client
+│   │   ├── driftDataApi.ts      # Live Drift Protocol funding feed
+│   │   └── vaultProgram.ts      # On-chain vault interaction (725 lines)
+│   ├── 📁 config/
+│   │   └── network.ts           # Solana network config + explorer URLs
+│   ├── 📁 idl/
+│   │   └── neutralalpha_vault.json # Anchor IDL for frontend
 │   ├── 📁 types/
 │   │   ├── dashboard.ts         # TypeScript interfaces
-│   │   └── phantom.d.ts         # Phantom wallet type declarations
+│   │   └── phantom.d.ts         # Wallet type declarations
 │   └── 📁 utils/
 │       └── cn.ts                # className utility (clsx + twMerge)
 │
+├── 📁 lib/                      # Shared Libraries
+│   └── aiSignalEngine.mjs       # AI signal: Qwen LLM + rule engine fallback
+│
+├── 📁 api/                      # Vercel Serverless Functions
+│   └── v1/ai/signal.js          # AI signal endpoint (serverless)
+│
 ├── 📁 server/                   # Backend API
-│   └── index.mjs                # Node.js risk engine (468 lines, zero deps)
+│   └── index.mjs                # Node.js risk engine (476 lines, zero deps)
 │
 ├── 📁 onchain/                  # Solana Anchor Program
 │   ├── Anchor.toml              # Anchor configuration
@@ -474,7 +504,7 @@ NeutralAlpha-Vault/
 │   └── 📁 programs/neutralalpha_vault/
 │       ├── Cargo.toml           # Crate config (anchor-lang 0.30.1)
 │       └── 📁 src/
-│           └── lib.rs           # Vault program (542 lines)
+│           └── lib.rs           # Vault program (536 lines)
 │
 ├── 📁 scripts/                  # Tooling & Testing
 │   ├── dev-stack.mjs            # Run API + Web simultaneously
@@ -482,15 +512,23 @@ NeutralAlpha-Vault/
 │   ├── testnet-harness.mjs      # Solana testnet transaction harness
 │   └── vault-client.mjs         # CLI vault operations (init/deposit/withdraw)
 │
-├── 📁 docs/                     # Documentation
+├── 📁 docs/                     # Documentation (13 files)
 │   ├── API_CONTRACT.md          # Frozen API specification
+│   ├── STRATEGY_FINAL.md        # Strategy thesis + edge explanation
+│   ├── BACKTEST_APY_REPORT.md   # APY projections (Bear/Base/Bull)
+│   ├── COMPLIANCE_NARRATIVE.md  # Regulatory compliance narrative
 │   ├── RUNBOOK.md               # Setup & operations guide
 │   ├── ONCHAIN_RUNBOOK.md       # Anchor deploy instructions
 │   ├── TESTNET_HARNESS.md       # Testnet harness documentation
-│   ├── STATUS_2026-03-22.md     # Daily progress report
-│   └── FULL_PROJECT_AUDIT.md    # Comprehensive project audit
+│   ├── DEMO_VIDEO_SCRIPT_FINAL.md # Demo video script
+│   ├── RANGER_SUBMISSION_PACKAGE.md # Submission form draft
+│   ├── FULL_PROJECT_AUDIT.md    # Comprehensive project audit
+│   ├── TODO_ACTION_PLAN.md      # Action plan tracking
+│   ├── STATUS_2026-03-22.md     # Progress report
+│   └── FINAL_SMOKE_TEST_REPORT_2026-03-25.md # Smoke test results
 │
 └── 📁 assets/                   # Static assets
+    ├── banner.png               # Project banner
     ├── architecture-diagram.png # System architecture diagram
     └── strategy-flow.png        # Delta-neutral strategy flow
 ```
@@ -512,6 +550,26 @@ npm run testnet:harness
 # Quick health check
 curl http://localhost:8787/api/v1/health
 ```
+
+---
+
+## 🌐 Live Demo & On-Chain Verification
+
+| Item | Link |
+|------|------|
+| **Live App** | [neutral-alpha-vault.vercel.app](https://neutral-alpha-vault.vercel.app) |
+| **Program ID** | [`QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD`](https://explorer.solana.com/address/QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD?cluster=devnet) |
+| **Vault State** | [`5dnfKz6SYWtuGC1LZrfG77YNSkL8GAu8HqjmEKVxqDwY`](https://explorer.solana.com/address/5dnfKz6SYWtuGC1LZrfG77YNSkL8GAu8HqjmEKVxqDwY?cluster=devnet) |
+| **USDC Mint** | [`4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ`](https://explorer.solana.com/address/4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ?cluster=devnet) |
+| **Share Mint** | [`EABxbGDdQK6wus66pCveXsRAWrdJ5gwoRvP5JVpbC87n`](https://explorer.solana.com/address/EABxbGDdQK6wus66pCveXsRAWrdJ5gwoRvP5JVpbC87n?cluster=devnet) |
+
+### Transaction Proofs
+
+| Transaction | Explorer Link |
+|-------------|---------------|
+| **Init Vault** | [View on Explorer](https://explorer.solana.com/tx/4UK1a8BMLMWGsjBU2Dq6SjE1ggZkHpr1vot5EouGK7bptvHTc7VAJeXHe1cGBvCt7SBe4n5kxWPEhU8zJEmkoEh6?cluster=devnet) |
+| **Deposit** | [View on Explorer](https://explorer.solana.com/tx/2e1rHwZUnde7Xei4L6BoZzRL6w1fxAW5NvzxMq42PzuthYJCegSEAJ3Q88ZSDwFSnwqnK4zcsYk1ihtUpGUGXZSZ?cluster=devnet) |
+| **Withdraw** | [View on Explorer](https://explorer.solana.com/tx/3enj1hfskPM7B3V3J1gVZozx6nd1XpQL8T6xWXGymUFAzymXUpxq92R1a26qvnqQDcD9cYDwxS8uwwvndsu4Qwoy?cluster=devnet) |
 
 ---
 

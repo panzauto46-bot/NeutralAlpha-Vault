@@ -11,7 +11,16 @@ This folder contains the Solana program for NeutralAlpha Vault with:
 ## Program Layout
 
 - Program crate: `programs/neutralalpha_vault`
-- Program id: `Fg6PaFpoGXkYsidMpWxTWqkZ6rN1Y2fYgR6K9YqR9Qj3` (placeholder for local/testnet)
+- Program ID: `QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD` (**deployed on devnet**)
+- [View on Explorer](https://explorer.solana.com/address/QniYjDEAC4upFurkXeYDdyTMYNf8D7q2ijySC447NRD?cluster=devnet)
+
+## Deployed Accounts
+
+| Account | Address |
+|---------|---------|
+| Vault State | `5dnfKz6SYWtuGC1LZrfG77YNSkL8GAu8HqjmEKVxqDwY` |
+| USDC Mint | `4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ` |
+| Share Mint | `EABxbGDdQK6wus66pCveXsRAWrdJ5gwoRvP5JVpbC87n` |
 
 ## Instructions
 
@@ -37,11 +46,11 @@ cd onchain
 anchor build
 ```
 
-## Deploy to Testnet
+## Deploy to Devnet
 
 ```bash
 cd onchain
-anchor deploy --provider.cluster testnet
+anchor deploy --provider.cluster devnet
 ```
 
 ## Notes for Protocol Wiring

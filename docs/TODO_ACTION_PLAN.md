@@ -263,3 +263,35 @@
 > **Note:** Setelah setiap PR selesai, update status ☐ → ☑ dan commit ke GitHub.
 
 
+
+---
+
+## FINAL SUBMISSION CHECKLIST (Ranger Main Track)
+
+Status update per `2026-03-25`:
+
+- [x] Vault base asset = `USDC` (on-chain + UI)
+- [x] Tenor lock = `3-month rolling` (90 hari, terlihat di UI)
+- [x] Deposit/Withdraw on-chain sukses + link Solscan tersedia
+- [x] On-chain verification siap (Program ID, Vault State, USDC Vault, Share Mint)
+- [x] Repo GitHub aktif dan bisa diverifikasi juri
+- [x] AI Signal Engine aktif (Qwen via server-side key)
+
+- [x] Minimum APY `>= 10%` dengan bukti performa final (live period/backtest report) (`docs/BACKTEST_APY_REPORT.md`)
+- [x] Dokumentasi strategi final (thesis, edge, sizing, rebalance logic, drawdown controls) (`docs/STRATEGY_FINAL.md`)
+- [x] Pastikan narasi compliance tidak menggunakan sumber yield yang didiskualifikasi (`docs/COMPLIANCE_NARRATIVE.md`)
+- [ ] Video demo 3 menit final (PR-11)
+- [ ] Submission form Ranger Earn final (video + docs + repo + on-chain proof) (draft siap: `docs/RANGER_SUBMISSION_PACKAGE.md`)
+- [ ] Rotate/ganti semua API key yang pernah terekspos lalu update env Vercel (skip by request user untuk saat ini)
+- [ ] Final smoke test end-to-end sebelum submit (incognito + wallet test + Solscan proof) (automated PASS: `docs/FINAL_SMOKE_TEST_REPORT_2026-03-25.md`)
+
+### Prioritas 48 Jam
+
+1. Rekam video demo 3 menit (wajib submission).
+2. Jalankan manual smoke test incognito + wallet + verifikasi Solscan.
+3. Kumpulkan 3-5 tx proof terbaik (deposit/withdraw/rebalance/emergency) + link Solscan.
+4. (Opsional) Rotate API key lama dan redeploy ulang Vercel.
+5. Submit lengkap di Ranger Earn sebelum deadline.
+
+
+
