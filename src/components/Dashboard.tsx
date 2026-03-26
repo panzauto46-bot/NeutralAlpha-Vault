@@ -223,8 +223,8 @@ export default function Dashboard() {
       deltaExposurePct: snapshot?.overview.deltaExposurePct ?? null,
       drawdown7dPct: snapshot?.risk.drawdown7dPct ?? null,
       usdcPrice: snapshot?.risk.usdcPrice ?? null,
-      emergencyMode: Boolean(onChainSnapshot?.emergencyMode || snapshot?.risk.emergencyState),
-      depositPaused: Boolean(onChainSnapshot?.paused || snapshot?.risk.depositPaused),
+      emergencyMode: onChainSnapshot ? onChainSnapshot.emergencyMode : Boolean(snapshot?.risk.emergencyState),
+      depositPaused: onChainSnapshot ? onChainSnapshot.paused : Boolean(snapshot?.risk.depositPaused),
       activeAsset: snapshot?.signal.activeAsset ?? driftBestAsset ?? "SOL",
       liveFunding: snapshot?.liveFunding ?? driftTelemetry?.liveFunding ?? null,
     }),
@@ -480,20 +480,20 @@ export default function Dashboard() {
   }, [activityItems, onChainSnapshot]);
 
   const onChainDrawdown7dPct = useMemo(() => {
-    if (snapshot) {
-      return snapshot.risk.drawdown7dPct;
-    }
-    if (onChainNavSeries.length < 8) {
-      return null;
-    }
+    if (onChainSnapshot) {
+      if (onChainNavSeries.length < 8) {
+        return null;
+      }
 
-    const latest = onChainNavSeries[onChainNavSeries.length - 1].nav;
-    const sevenDaysAgo = onChainNavSeries[Math.max(0, onChainNavSeries.length - 8)].nav;
-    if (sevenDaysAgo <= 0) {
-      return null;
+      const latest = onChainNavSeries[onChainNavSeries.length - 1].nav;
+      const sevenDaysAgo = onChainNavSeries[Math.max(0, onChainNavSeries.length - 8)].nav;
+      if (sevenDaysAgo <= 0) {
+        return null;
+      }
+      return Math.max(0, ((sevenDaysAgo - latest) / sevenDaysAgo) * 100);
     }
-    return Math.max(0, ((sevenDaysAgo - latest) / sevenDaysAgo) * 100);
-  }, [onChainNavSeries, snapshot]);
+    return snapshot?.risk.drawdown7dPct ?? null;
+  }, [onChainNavSeries, onChainSnapshot, snapshot]);
 
   const driftDerivedApy = useMemo(() => {
     if (!driftTelemetry) {
@@ -645,6 +645,22 @@ export default function Dashboard() {
   const strategyHealthMin = snapshot?.risk.limits.minHealthRatioTarget ?? 1.5;
   const riskDrawdownText =
     onChainDrawdown7dPct !== null ? formatPercent(onChainDrawdown7dPct, 2) : "Pending history";
+  const riskAlerts = useMemo(() => {
+    if (onChainSnapshot) {
+      const alerts: string[] = [];
+      if (onChainDrawdown7dPct !== null && onChainDrawdown7dPct >= 5) {
+        alerts.push(`Soft drawdown triggered (${formatPercent(onChainDrawdown7dPct, 2)} /7d).`);
+      }
+      if (isDepositPaused) {
+        alerts.push("Deposits paused by on-chain vault controls.");
+      }
+      if (isEmergencyMode) {
+        alerts.push("Emergency protection mode is active on-chain.");
+      }
+      return alerts;
+    }
+    return snapshot?.risk.alerts ?? [];
+  }, [isDepositPaused, isEmergencyMode, onChainDrawdown7dPct, onChainSnapshot, snapshot?.risk.alerts]);
 
   async function handleDepositClick() {
     if (!onChainReady || !walletAddress) {
@@ -855,11 +871,11 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {snapshot && snapshot.risk.alerts.length > 0 ? (
+            {riskAlerts.length > 0 ? (
               <div className="mt-4 p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10">
                 <div className="text-sm text-yellow-300 font-medium mb-2">Risk Alerts</div>
                 <div className="space-y-1">
-                  {snapshot.risk.alerts.map((alert, index) => (
+                  {riskAlerts.map((alert, index) => (
                     <p key={`${alert}-${index}`} className="text-xs text-yellow-100/90">
                       {alert}
                     </p>
