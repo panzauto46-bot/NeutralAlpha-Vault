@@ -120,6 +120,34 @@ function formatCountdown(ms: number) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error.trim();
+  }
+  if (error && typeof error === "object") {
+    const asRecord = error as Record<string, unknown>;
+    const message = asRecord.message;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message.trim();
+    }
+    const nestedError = asRecord.error;
+    if (nestedError) {
+      const nested: string = extractErrorMessage(nestedError);
+      if (nested !== "Unexpected error") {
+        return nested;
+      }
+    }
+    const reason = asRecord.reason;
+    if (typeof reason === "string" && reason.trim().length > 0) {
+      return reason.trim();
+    }
+  }
+  return "Unexpected error";
+}
+
 export default function Dashboard() {
   const { walletAddress, walletReady, walletProvider } = useWallet();
 
@@ -627,7 +655,7 @@ export default function Dashboard() {
       setDepositAmount("");
       await Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = extractErrorMessage(error);
       setDepositMessage(`Deposit failed: ${message}`);
     } finally {
       setDepositPending(false);
@@ -668,7 +696,7 @@ export default function Dashboard() {
       setWithdrawAmount("");
       await Promise.all([loadSnapshot(), loadActivity(), loadOnChain()]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = extractErrorMessage(error);
       setWithdrawMessage(`Withdraw failed: ${message}`);
     } finally {
       setWithdrawPending(false);

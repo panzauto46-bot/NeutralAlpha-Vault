@@ -130,6 +130,13 @@ function fromBaseUnits(amount: bigint) {
   return Number(amount) / 10 ** TOKEN_DECIMALS;
 }
 
+function formatTokenAmount(amountBaseUnits: bigint) {
+  return fromBaseUnits(amountBaseUnits).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: TOKEN_DECIMALS,
+  });
+}
+
 function readU64LE(bytes: Uint8Array, offset: number) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return view.getBigUint64(offset, true);
@@ -273,6 +280,51 @@ function encodeAmountInstruction(discriminator: Uint8Array, amount: bigint): Buf
   return payload as unknown as Buffer;
 }
 
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error.trim();
+  }
+  if (error && typeof error === "object") {
+    const asRecord = error as Record<string, unknown>;
+    const directMessage = asRecord.message;
+    if (typeof directMessage === "string" && directMessage.trim().length > 0) {
+      return directMessage.trim();
+    }
+    const nestedError = asRecord.error;
+    if (nestedError) {
+      const nested = extractErrorMessage(nestedError);
+      if (nested !== "Unexpected error") {
+        return nested;
+      }
+    }
+    const reason = asRecord.reason;
+    if (typeof reason === "string" && reason.trim().length > 0) {
+      return reason.trim();
+    }
+    const details = asRecord.details;
+    if (typeof details === "string" && details.trim().length > 0) {
+      return details.trim();
+    }
+  }
+  return "Unexpected error";
+}
+
+async function getTokenBalanceBaseUnits(connection: Connection, tokenAccount: PublicKey): Promise<bigint> {
+  const info = await connection.getAccountInfo(tokenAccount, COMMITMENT);
+  if (!info) {
+    return 0n;
+  }
+  try {
+    const balance = await connection.getTokenAccountBalance(tokenAccount, COMMITMENT);
+    return BigInt(balance.value.amount);
+  } catch {
+    return 0n;
+  }
+}
+
 async function createAtaIxIfMissing(
   connection: Connection,
   payer: PublicKey,
@@ -308,12 +360,17 @@ async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
   tx.feePayer = wallet.publicKey;
   tx.recentBlockhash = latest.blockhash;
 
-  const signed = await wallet.signAndSendTransaction(tx, {
-    preflightCommitment: COMMITMENT,
-    maxRetries: 3,
-  });
+  let signed: { signature: string } | string;
+  try {
+    signed = await wallet.signAndSendTransaction(tx, {
+      preflightCommitment: COMMITMENT,
+      maxRetries: 3,
+    });
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
   const signature = typeof signed === "string" ? signed : signed.signature;
-  await connection.confirmTransaction(
+  const confirmation = await connection.confirmTransaction(
     {
       signature,
       blockhash: latest.blockhash,
@@ -321,6 +378,9 @@ async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
     },
     COMMITMENT,
   );
+  if (confirmation.value.err) {
+    throw new Error(`On-chain transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
   return signature;
 }
 
@@ -546,6 +606,13 @@ export async function sendOnChainDeposit(
     false,
   );
 
+  const availableUsdcBaseUnits = await getTokenBalanceBaseUnits(connection, depositorUsdcAta);
+  if (availableUsdcBaseUnits < amountBaseUnits) {
+    throw new Error(
+      `Insufficient devnet USDC. Required ${formatTokenAmount(amountBaseUnits)} USDC, available ${formatTokenAmount(availableUsdcBaseUnits)} USDC.`,
+    );
+  }
+
   const depositIx = new TransactionInstruction({
     programId,
     keys: [
@@ -627,6 +694,12 @@ export async function sendOnChainWithdraw(
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
   );
+  const availableShareBaseUnits = await getTokenBalanceBaseUnits(connection, depositorShareAta);
+  if (availableShareBaseUnits < sharesToBurn) {
+    throw new Error(
+      `Insufficient share balance in token account. Required ${formatTokenAmount(sharesToBurn)} shares, available ${formatTokenAmount(availableShareBaseUnits)} shares.`,
+    );
+  }
 
   const withdrawIx = new TransactionInstruction({
     programId,
