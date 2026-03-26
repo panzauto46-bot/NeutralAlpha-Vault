@@ -414,42 +414,34 @@ async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
   tx.recentBlockhash = latest.blockhash;
 
   let signature: string | null = null;
-  try {
-    if (typeof wallet.signAndSendTransaction === "function") {
+
+  // Prefer signTransaction + sendRawTransaction via our own RPC.
+  // signAndSendTransaction sends through Phantom's internal RPC which may
+  // not have devnet programs cached, causing "program does not exist" errors.
+  if (typeof wallet.signTransaction === "function") {
+    try {
+      const signedTx = await wallet.signTransaction(tx);
+      signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        preflightCommitment: COMMITMENT,
+        maxRetries: 3,
+      });
+    } catch (error) {
+      throw new Error(extractErrorMessage(error));
+    }
+  } else if (typeof wallet.signAndSendTransaction === "function") {
+    try {
       const signed = await wallet.signAndSendTransaction(tx, {
+        skipPreflight: true,
         preflightCommitment: COMMITMENT,
         maxRetries: 3,
       });
       signature = typeof signed === "string" ? signed : signed.signature;
-    } else if (typeof wallet.signTransaction === "function") {
-      const signedTx = await wallet.signTransaction(tx);
-      signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        preflightCommitment: COMMITMENT,
-        maxRetries: 3,
-      });
-    } else {
-      throw new Error("Wallet provider does not support transaction signing.");
+    } catch (error) {
+      throw new Error(extractErrorMessage(error));
     }
-  } catch (error) {
-    const primaryMessage = extractErrorMessage(error);
-    // Some injected wallets throw undefined/empty objects from signAndSendTransaction.
-    // Retry with signTransaction path when available so users are not blocked by provider quirks.
-    if (
-      (primaryMessage === "Unexpected error" || primaryMessage.startsWith("Wallet error code:")) &&
-      typeof wallet.signTransaction === "function"
-    ) {
-      try {
-        const signedTx = await wallet.signTransaction(tx);
-        signature = await connection.sendRawTransaction(signedTx.serialize(), {
-          preflightCommitment: COMMITMENT,
-          maxRetries: 3,
-        });
-      } catch (fallbackError) {
-        throw new Error(extractErrorMessage(fallbackError));
-      }
-    } else {
-      throw new Error(primaryMessage);
-    }
+  } else {
+    throw new Error("Wallet provider does not support transaction signing.");
   }
 
   if (!signature) {
