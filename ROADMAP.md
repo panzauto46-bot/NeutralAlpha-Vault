@@ -153,6 +153,7 @@ Exit criteria:
 - [x] Root cause identified: pre-deposit balance check only inspected ATA, missing legacy token accounts
 - [x] Frontend on-chain deposit updated to scan all owner USDC token accounts and pick the largest balance
 - [x] Deposit source account no longer forced to ATA when valid non-ATA balance exists
+- [x] Fixed Associated Token Program ID typo (`...bsiqW...`) to resolve `ProgramAccountNotFound` on ATA creation path
 
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 

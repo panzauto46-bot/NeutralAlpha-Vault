@@ -318,6 +318,11 @@ check:
 
 As of 2026-03-26, on-chain deposit scans all owner USDC token accounts (not only ATA) before submitting tx, so legacy/non-ATA balances are accepted.
 
+Program ID note:
+
+- Associated Token Program must be `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL`.
+- A typo in this value can cause `ProgramAccountNotFound` during ATA creation.
+
 ---
 
 ## ⛓️ On-Chain Program
