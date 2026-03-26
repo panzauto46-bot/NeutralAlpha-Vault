@@ -55,10 +55,16 @@ import {
 } from "@/config/network";
 
 type DataMode = "live" | "unavailable";
+type ActivityFilter = "ALL" | "DEPOSIT" | "WITHDRAW";
 
 const POLL_INTERVAL_MS = 15_000;
 const QUICK_AMOUNTS_USD = [25, 100, 250];
 const LOCAL_ACTIVITY_LIMIT = 25;
+const ACTIVITY_FILTER_OPTIONS: Array<{ value: ActivityFilter; label: string }> = [
+  { value: "ALL", label: "All" },
+  { value: "DEPOSIT", label: "Deposit" },
+  { value: "WITHDRAW", label: "Withdraw" },
+];
 
 const SIGNAL_STYLES: Record<AiAction, { panel: string; text: string }> = {
   HOLD: {
@@ -207,6 +213,31 @@ function mergeActivityLists(primary: VaultActivityItem[], secondary: VaultActivi
   return [...byKey.values()].sort((a, b) => activityTimestamp(b) - activityTimestamp(a));
 }
 
+function activitySourceMeta(source: VaultActivityItem["source"] | undefined) {
+  if (source === "onchain") {
+    return {
+      label: "On-chain",
+      classes: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+    };
+  }
+  if (source === "api") {
+    return {
+      label: "Telemetry",
+      classes: "border-blue-400/30 bg-blue-500/10 text-blue-300",
+    };
+  }
+  if (source === "fallback") {
+    return {
+      label: "Pending Sync",
+      classes: "border-yellow-500/30 bg-yellow-500/10 text-yellow-200",
+    };
+  }
+  return {
+    label: "Unknown",
+    classes: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+  };
+}
+
 export default function Dashboard() {
   const { walletAddress, walletReady, walletProvider } = useWallet();
 
@@ -239,6 +270,7 @@ export default function Dashboard() {
 
   const [activityItems, setActivityItems] = useState<VaultActivityItem[]>([]);
   const [localActivityItems, setLocalActivityItems] = useState<VaultActivityItem[]>([]);
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("ALL");
   const [nowTs, setNowTs] = useState(() => Date.now());
 
   const onChainReady = walletReady &&
@@ -652,7 +684,12 @@ export default function Dashboard() {
         text: "text-slate-300",
       };
   const liveFundingEntries = effectiveLiveFunding ? Object.entries(effectiveLiveFunding) : [];
-  const recentActivity = useMemo(() => effectiveActivityItems.slice(0, 6), [effectiveActivityItems]);
+  const recentActivity = useMemo(() => {
+    const filtered = effectiveActivityItems.filter((item) =>
+      activityFilter === "ALL" ? true : item.action === activityFilter,
+    );
+    return filtered.slice(0, 6);
+  }, [activityFilter, effectiveActivityItems]);
   const latestExplorerActivity = useMemo(
     () => recentActivity.find((item) => Boolean(item.explorerUrl)),
     [recentActivity],
@@ -1376,9 +1413,26 @@ export default function Dashboard() {
           viewport={{ once: true }}
           className="glass rounded-2xl p-6"
         >
-          <div className="flex items-center justify-between mb-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-5">
             <h3 className="text-lg font-semibold text-white">Recent Activity</h3>
-            <span className="text-xs text-slate-500">Last {recentActivity.length} records</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {ACTIVITY_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setActivityFilter(option.value)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs border transition-colors",
+                    activityFilter === option.value
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                      : "border-white/10 text-slate-300 hover:text-white hover:border-white/20",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+              <span className="text-xs text-slate-500 ml-1">Last {recentActivity.length} records</span>
+            </div>
           </div>
 
           {recentActivity.length > 0 ? (
@@ -1397,6 +1451,7 @@ export default function Dashboard() {
                     ? "text-blue-300"
                     : "text-yellow-300";
                 const label = isDeposit ? "Deposit" : isWithdraw ? "Withdraw" : "Rebalance";
+                const sourceMeta = activitySourceMeta(item.source);
                 return (
                   <div key={item.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
                     <div className="flex items-center gap-3">
@@ -1415,7 +1470,12 @@ export default function Dashboard() {
                         )}
                       </div>
                       <div>
-                        <p className="text-sm text-white font-medium">{label}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-white font-medium">{label}</p>
+                          <span className={cn("text-[10px] px-2 py-0.5 rounded-full border", sourceMeta.classes)}>
+                            {sourceMeta.label}
+                          </span>
+                        </div>
                         <p className="text-xs text-slate-500">
                           {shortWallet(item.wallet)} | {formatActivityDate(item.at)}
                         </p>
