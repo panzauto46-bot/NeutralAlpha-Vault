@@ -404,8 +404,10 @@ export default function Dashboard() {
 
   const lockRemainingMs = unlockTsMs ? unlockTsMs - nowTs : 0;
   const isLocked = Boolean(unlockTsMs && lockRemainingMs > 0 && !onChainSnapshot?.emergencyMode);
-  const isEmergencyMode = Boolean(onChainSnapshot?.emergencyMode || snapshot?.risk.emergencyState);
-  const isDepositPaused = Boolean(onChainSnapshot?.paused || snapshot?.risk.depositPaused);
+  const telemetryEmergencyMode = Boolean(snapshot?.risk.emergencyState);
+  const telemetryDepositPaused = Boolean(snapshot?.risk.depositPaused);
+  const isEmergencyMode = onChainSnapshot ? onChainSnapshot.emergencyMode : telemetryEmergencyMode;
+  const isDepositPaused = onChainSnapshot ? onChainSnapshot.paused : telemetryDepositPaused;
 
   const quickWithdrawOptions = useMemo(() => {
     if (estimatedWithdrawableUsd <= 0) {

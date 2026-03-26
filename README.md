@@ -323,6 +323,11 @@ Program ID note:
 - Associated Token Program must be `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL`.
 - A typo in this value can cause `ProgramAccountNotFound` during ATA creation.
 
+UI gating note:
+
+- In on-chain mode, deposit blocking now follows on-chain vault flags (`paused`, `emergency_mode`) first.
+- Telemetry risk alerts can still be shown in UI, but do not override an on-chain-ready deposit path.
+
 ---
 
 ## ⛓️ On-Chain Program
