@@ -148,6 +148,12 @@ Exit criteria:
 - [x] Project redeployed after env update
 - [x] Production API verification passed (`deposit`, `withdraw`, `vault/activity`, `dashboard`)
 
+## Deposit Runtime Hotfix (2026-03-26)
+
+- [x] Root cause identified: pre-deposit balance check only inspected ATA, missing legacy token accounts
+- [x] Frontend on-chain deposit updated to scan all owner USDC token accounts and pick the largest balance
+- [x] Deposit source account no longer forced to ATA when valid non-ATA balance exists
+
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 
 - [x] Freeze technical interfaces: vault, signal engine, risk daemon APIs

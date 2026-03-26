@@ -304,6 +304,20 @@ After setting env vars:
 2. Verify `/api/v1/vault/deposit` and `/api/v1/vault/withdraw` return `ok: true`.
 3. Verify `/api/v1/vault/activity` persists new items across repeated calls.
 
+### Deposit Balance Troubleshooting (Devnet)
+
+If deposit fails with:
+
+`Insufficient devnet USDC. Required X USDC, available 0 USDC`
+
+check:
+
+1. Wallet token is `USDC` (not `USDT`).
+2. Wallet network is Solana `Devnet`.
+3. The app uses `VITE_USDC_MINT=4aCBUPBy6aLzPVdE9qoV16jmJuPnbrxQRzPN45VnMpJZ`.
+
+As of 2026-03-26, on-chain deposit scans all owner USDC token accounts (not only ATA) before submitting tx, so legacy/non-ATA balances are accepted.
+
 ---
 
 ## ⛓️ On-Chain Program

@@ -325,6 +325,39 @@ async function getTokenBalanceBaseUnits(connection: Connection, tokenAccount: Pu
   }
 }
 
+interface OwnerTokenBalanceAccount {
+  address: PublicKey;
+  amountBaseUnits: bigint;
+}
+
+async function findOwnerTokenAccountWithLargestBalance(
+  connection: Connection,
+  owner: PublicKey,
+  mint: PublicKey,
+): Promise<OwnerTokenBalanceAccount | null> {
+  try {
+    const accounts = await connection.getParsedTokenAccountsByOwner(owner, { mint }, COMMITMENT);
+    let best: OwnerTokenBalanceAccount | null = null;
+    for (const entry of accounts.value) {
+      const parsed = entry.account.data.parsed;
+      const amountRaw = parsed?.info?.tokenAmount?.amount;
+      if (typeof amountRaw !== "string") {
+        continue;
+      }
+      const amountBaseUnits = BigInt(amountRaw);
+      if (!best || amountBaseUnits > best.amountBaseUnits) {
+        best = {
+          address: entry.pubkey,
+          amountBaseUnits,
+        };
+      }
+    }
+    return best;
+  } catch {
+    return null;
+  }
+}
+
 async function createAtaIxIfMissing(
   connection: Connection,
   payer: PublicKey,
@@ -606,7 +639,10 @@ export async function sendOnChainDeposit(
     false,
   );
 
-  const availableUsdcBaseUnits = await getTokenBalanceBaseUnits(connection, depositorUsdcAta);
+  const ownerUsdcAccount = await findOwnerTokenAccountWithLargestBalance(connection, owner, usdcMint);
+  const depositSourceUsdcAccount =
+    ownerUsdcAccount && ownerUsdcAccount.amountBaseUnits > 0n ? ownerUsdcAccount.address : depositorUsdcAta;
+  const availableUsdcBaseUnits = ownerUsdcAccount?.amountBaseUnits ?? 0n;
   if (availableUsdcBaseUnits < amountBaseUnits) {
     throw new Error(
       `Insufficient devnet USDC. Required ${formatTokenAmount(amountBaseUnits)} USDC, available ${formatTokenAmount(availableUsdcBaseUnits)} USDC.`,
@@ -618,7 +654,7 @@ export async function sendOnChainDeposit(
     keys: [
       { pubkey: derived.vaultState, isSigner: false, isWritable: true },
       { pubkey: derived.vaultAuthority, isSigner: false, isWritable: false },
-      { pubkey: depositorUsdcAta, isSigner: false, isWritable: true },
+      { pubkey: depositSourceUsdcAccount, isSigner: false, isWritable: true },
       { pubkey: vaultState.usdcVault, isSigner: false, isWritable: true },
       { pubkey: vaultState.shareMint, isSigner: false, isWritable: true },
       { pubkey: depositorShareAta, isSigner: false, isWritable: true },
@@ -631,7 +667,7 @@ export async function sendOnChainDeposit(
   });
 
   const tx = new Transaction();
-  if (createUsdcAtaIx) {
+  if (createUsdcAtaIx && depositSourceUsdcAccount.equals(depositorUsdcAta)) {
     tx.add(createUsdcAtaIx);
   }
   if (createShareAtaIx) {
