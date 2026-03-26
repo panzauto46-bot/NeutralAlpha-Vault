@@ -407,58 +407,89 @@ async function createAtaIxIfMissing(
   return { ata, ix };
 }
 
+const RETRYABLE_TX_ERRORS = ["ProgramAccountNotFound", "AccountNotFound"];
+const MAX_TX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+
+function isRetryableError(err: unknown): boolean {
+  const errStr = typeof err === "string" ? err : JSON.stringify(err);
+  return RETRYABLE_TX_ERRORS.some((code) => errStr.includes(code));
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
   const { connection } = ensureConfig();
-  const latest = await connection.getLatestBlockhash(COMMITMENT);
-  tx.feePayer = wallet.publicKey;
-  tx.recentBlockhash = latest.blockhash;
 
-  let signature: string | null = null;
+  for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {
+    // Get a fresh blockhash for each attempt.
+    const latest = await connection.getLatestBlockhash(COMMITMENT);
+    tx.feePayer = wallet.publicKey;
+    tx.recentBlockhash = latest.blockhash;
+    // Clear any previous signatures so re-signing works cleanly.
+    tx.signatures = [];
 
-  // Prefer signTransaction + sendRawTransaction via our own RPC.
-  // signAndSendTransaction sends through Phantom's internal RPC which may
-  // not have devnet programs cached, causing "program does not exist" errors.
-  if (typeof wallet.signTransaction === "function") {
-    try {
-      const signedTx = await wallet.signTransaction(tx);
-      signature = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: true,
-        preflightCommitment: COMMITMENT,
-        maxRetries: 3,
-      });
-    } catch (error) {
-      throw new Error(extractErrorMessage(error));
+    let signature: string | null = null;
+
+    // Prefer signTransaction + sendRawTransaction via our own RPC.
+    // signAndSendTransaction sends through Phantom's internal RPC which may
+    // not have devnet programs cached, causing "program does not exist" errors.
+    if (typeof wallet.signTransaction === "function") {
+      try {
+        const signedTx = await wallet.signTransaction(tx);
+        signature = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: true,
+          preflightCommitment: COMMITMENT,
+          maxRetries: 3,
+        });
+      } catch (error) {
+        throw new Error(extractErrorMessage(error));
+      }
+    } else if (typeof wallet.signAndSendTransaction === "function") {
+      try {
+        const signed = await wallet.signAndSendTransaction(tx, {
+          skipPreflight: true,
+          preflightCommitment: COMMITMENT,
+          maxRetries: 3,
+        });
+        signature = typeof signed === "string" ? signed : signed.signature;
+      } catch (error) {
+        throw new Error(extractErrorMessage(error));
+      }
+    } else {
+      throw new Error("Wallet provider does not support transaction signing.");
     }
-  } else if (typeof wallet.signAndSendTransaction === "function") {
-    try {
-      const signed = await wallet.signAndSendTransaction(tx, {
-        skipPreflight: true,
-        preflightCommitment: COMMITMENT,
-        maxRetries: 3,
-      });
-      signature = typeof signed === "string" ? signed : signed.signature;
-    } catch (error) {
-      throw new Error(extractErrorMessage(error));
+
+    if (!signature) {
+      throw new Error("Failed to obtain transaction signature.");
     }
-  } else {
-    throw new Error("Wallet provider does not support transaction signing.");
+
+    const confirmation = await connection.confirmTransaction(
+      {
+        signature,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      },
+      COMMITMENT,
+    );
+
+    if (confirmation.value.err) {
+      if (isRetryableError(confirmation.value.err) && attempt < MAX_TX_RETRIES) {
+        console.warn(
+          `[vault] Attempt ${attempt}/${MAX_TX_RETRIES} failed with retryable error: ${JSON.stringify(confirmation.value.err)}. Retrying in ${RETRY_DELAY_MS}ms...`,
+        );
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+      throw new Error(`On-chain transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
+
+    return signature;
   }
 
-  if (!signature) {
-    throw new Error("Failed to obtain transaction signature.");
-  }
-  const confirmation = await connection.confirmTransaction(
-    {
-      signature,
-      blockhash: latest.blockhash,
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-    },
-    COMMITMENT,
-  );
-  if (confirmation.value.err) {
-    throw new Error(`On-chain transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-  }
-  return signature;
+  throw new Error("Transaction failed after maximum retries.");
 }
 
 function extractWalletSigner(input: unknown): WalletSigner {
