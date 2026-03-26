@@ -287,6 +287,23 @@ SIM_STATE_STORE_KEY=neutralalpha:telemetry:state:v1
 
 For Vercel, add the same variables in `Project Settings → Environment Variables`, then redeploy.
 
+### Vercel KV Setup (Verified: 2026-03-26)
+
+Use one naming pair only (either one is supported by this project):
+
+- `KV_REST_API_URL` + `KV_REST_API_TOKEN`
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`
+
+Required custom key:
+
+- `SIM_STATE_STORE_KEY=neutralalpha:telemetry:state:v1`
+
+After setting env vars:
+
+1. Redeploy from Vercel Deployments.
+2. Verify `/api/v1/vault/deposit` and `/api/v1/vault/withdraw` return `ok: true`.
+3. Verify `/api/v1/vault/activity` persists new items across repeated calls.
+
 ---
 
 ## ⛓️ On-Chain Program

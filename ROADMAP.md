@@ -1,7 +1,7 @@
 # NeutralAlpha Vault Roadmap
 
 Source: `NeutralAlpha_Vault_PRD.docx` (Version 1.0)  
-Last updated: 2026-03-25
+Last updated: 2026-03-26
 
 ## Goal
 
@@ -139,6 +139,14 @@ Exit criteria:
 - [x] Strategy/architecture docs aligned with current implementation (Qwen + rule fallback, Anchor vault)
 - [x] JS dependency risk reduced by removing direct `@solana/spl-token` dependency
 - [x] Vite single-file inlining switched to opt-in mode (`VITE_SINGLEFILE=1`)
+
+## Production KV Activation (2026-03-26)
+
+- [x] Upstash Redis created and connected via Vercel Storage integration
+- [x] `KV_REST_API_URL` and `KV_REST_API_TOKEN` confirmed in project environment variables
+- [x] `SIM_STATE_STORE_KEY` added for shared telemetry keyspace
+- [x] Project redeployed after env update
+- [x] Production API verification passed (`deposit`, `withdraw`, `vault/activity`, `dashboard`)
 
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 
