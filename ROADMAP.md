@@ -155,6 +155,7 @@ Exit criteria:
 - [x] Deposit source account no longer forced to ATA when valid non-ATA balance exists
 - [x] Fixed Associated Token Program ID typo (`...bsiqW...`) to resolve `ProgramAccountNotFound` on ATA creation path
 - [x] Deposit button gating now prioritizes on-chain `paused/emergency` state over telemetry fallback to avoid false positive blocks
+- [x] Added automatic retry + backoff for transient RPC `429` rate-limit failures during on-chain tx submission
 
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 

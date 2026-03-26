@@ -407,13 +407,21 @@ async function createAtaIxIfMissing(
   return { ata, ix };
 }
 
-const RETRYABLE_TX_ERRORS = ["ProgramAccountNotFound", "AccountNotFound"];
-const MAX_TX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000;
+const RETRYABLE_TX_ERRORS = [
+  "ProgramAccountNotFound",
+  "AccountNotFound",
+  "Connection rate limits exceeded",
+  "Too many requests",
+  "\"code\":429",
+  "\"code\":-429",
+  "rate limit",
+];
+const MAX_TX_RETRIES = 4;
+const RETRY_DELAY_MS = 1500;
 
 function isRetryableError(err: unknown): boolean {
-  const errStr = typeof err === "string" ? err : JSON.stringify(err);
-  return RETRYABLE_TX_ERRORS.some((code) => errStr.includes(code));
+  const errStr = (typeof err === "string" ? err : JSON.stringify(err)).toLowerCase();
+  return RETRYABLE_TX_ERRORS.some((code) => errStr.includes(code.toLowerCase()));
 }
 
 function sleep(ms: number) {
@@ -424,69 +432,75 @@ async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
   const { connection } = ensureConfig();
 
   for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {
-    // Get a fresh blockhash for each attempt.
-    const latest = await connection.getLatestBlockhash(COMMITMENT);
-    tx.feePayer = wallet.publicKey;
-    tx.recentBlockhash = latest.blockhash;
-    // Clear any previous signatures so re-signing works cleanly.
-    tx.signatures = [];
+    try {
+      // Get a fresh blockhash for each attempt.
+      const latest = await connection.getLatestBlockhash(COMMITMENT);
+      tx.feePayer = wallet.publicKey;
+      tx.recentBlockhash = latest.blockhash;
+      // Clear any previous signatures so re-signing works cleanly.
+      tx.signatures = [];
 
-    let signature: string | null = null;
+      let signature: string | null = null;
 
-    // Prefer signTransaction + sendRawTransaction via our own RPC.
-    // signAndSendTransaction sends through Phantom's internal RPC which may
-    // not have devnet programs cached, causing "program does not exist" errors.
-    if (typeof wallet.signTransaction === "function") {
-      try {
-        const signedTx = await wallet.signTransaction(tx);
-        signature = await connection.sendRawTransaction(signedTx.serialize(), {
-          skipPreflight: true,
-          preflightCommitment: COMMITMENT,
-          maxRetries: 3,
-        });
-      } catch (error) {
-        throw new Error(extractErrorMessage(error));
+      // Prefer signTransaction + sendRawTransaction via our own RPC.
+      // signAndSendTransaction sends through Phantom's internal RPC which may
+      // not have devnet programs cached, causing "program does not exist" errors.
+      if (typeof wallet.signTransaction === "function") {
+        try {
+          const signedTx = await wallet.signTransaction(tx);
+          signature = await connection.sendRawTransaction(signedTx.serialize(), {
+            skipPreflight: true,
+            preflightCommitment: COMMITMENT,
+            maxRetries: 3,
+          });
+        } catch (error) {
+          throw new Error(extractErrorMessage(error));
+        }
+      } else if (typeof wallet.signAndSendTransaction === "function") {
+        try {
+          const signed = await wallet.signAndSendTransaction(tx, {
+            skipPreflight: true,
+            preflightCommitment: COMMITMENT,
+            maxRetries: 3,
+          });
+          signature = typeof signed === "string" ? signed : signed.signature;
+        } catch (error) {
+          throw new Error(extractErrorMessage(error));
+        }
+      } else {
+        throw new Error("Wallet provider does not support transaction signing.");
       }
-    } else if (typeof wallet.signAndSendTransaction === "function") {
-      try {
-        const signed = await wallet.signAndSendTransaction(tx, {
-          skipPreflight: true,
-          preflightCommitment: COMMITMENT,
-          maxRetries: 3,
-        });
-        signature = typeof signed === "string" ? signed : signed.signature;
-      } catch (error) {
-        throw new Error(extractErrorMessage(error));
+
+      if (!signature) {
+        throw new Error("Failed to obtain transaction signature.");
       }
-    } else {
-      throw new Error("Wallet provider does not support transaction signing.");
-    }
 
-    if (!signature) {
-      throw new Error("Failed to obtain transaction signature.");
-    }
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latest.blockhash,
+          lastValidBlockHeight: latest.lastValidBlockHeight,
+        },
+        COMMITMENT,
+      );
 
-    const confirmation = await connection.confirmTransaction(
-      {
-        signature,
-        blockhash: latest.blockhash,
-        lastValidBlockHeight: latest.lastValidBlockHeight,
-      },
-      COMMITMENT,
-    );
+      if (confirmation.value.err) {
+        throw new Error(`On-chain transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
 
-    if (confirmation.value.err) {
-      if (isRetryableError(confirmation.value.err) && attempt < MAX_TX_RETRIES) {
+      return signature;
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      if (isRetryableError(message) && attempt < MAX_TX_RETRIES) {
+        const waitMs = RETRY_DELAY_MS * attempt;
         console.warn(
-          `[vault] Attempt ${attempt}/${MAX_TX_RETRIES} failed with retryable error: ${JSON.stringify(confirmation.value.err)}. Retrying in ${RETRY_DELAY_MS}ms...`,
+          `[vault] Attempt ${attempt}/${MAX_TX_RETRIES} failed with retryable error: ${message}. Retrying in ${waitMs}ms...`,
         );
-        await sleep(RETRY_DELAY_MS);
+        await sleep(waitMs);
         continue;
       }
-      throw new Error(`On-chain transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      throw new Error(message);
     }
-
-    return signature;
   }
 
   throw new Error("Transaction failed after maximum retries.");
