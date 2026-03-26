@@ -58,6 +58,7 @@ type DataMode = "live" | "unavailable";
 
 const POLL_INTERVAL_MS = 15_000;
 const QUICK_AMOUNTS_USD = [25, 100, 250];
+const LOCAL_ACTIVITY_LIMIT = 25;
 
 const SIGNAL_STYLES: Record<AiAction, { panel: string; text: string }> = {
   HOLD: {
@@ -167,6 +168,45 @@ function extractErrorMessage(error: unknown): string {
   return "Unexpected error";
 }
 
+function activityIdentity(item: VaultActivityItem) {
+  return item.signature?.trim() || item.id;
+}
+
+function activityTimestamp(item: VaultActivityItem) {
+  const parsed = Date.parse(item.at);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function activitySourceRank(source: VaultActivityItem["source"]) {
+  if (source === "onchain") return 3;
+  if (source === "api") return 2;
+  return 1;
+}
+
+function mergeActivityLists(primary: VaultActivityItem[], secondary: VaultActivityItem[]) {
+  const byKey = new Map<string, VaultActivityItem>();
+  for (const item of [...secondary, ...primary]) {
+    const key = activityIdentity(item);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+      continue;
+    }
+
+    const nextRank = activitySourceRank(item.source);
+    const currentRank = activitySourceRank(existing.source);
+    if (nextRank > currentRank) {
+      byKey.set(key, item);
+      continue;
+    }
+    if (nextRank === currentRank && activityTimestamp(item) > activityTimestamp(existing)) {
+      byKey.set(key, item);
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) => activityTimestamp(b) - activityTimestamp(a));
+}
+
 export default function Dashboard() {
   const { walletAddress, walletReady, walletProvider } = useWallet();
 
@@ -198,6 +238,7 @@ export default function Dashboard() {
   } | null>(null);
 
   const [activityItems, setActivityItems] = useState<VaultActivityItem[]>([]);
+  const [localActivityItems, setLocalActivityItems] = useState<VaultActivityItem[]>([]);
   const [nowTs, setNowTs] = useState(() => Date.now());
 
   const onChainReady = walletReady &&
@@ -272,6 +313,10 @@ export default function Dashboard() {
       try {
         const chainItems = await fetchOnChainActivity(25, walletAddress ?? undefined);
         setActivityItems(chainItems);
+        setLocalActivityItems((previous) => previous.filter((localItem) => {
+          const localKey = activityIdentity(localItem);
+          return !chainItems.some((chainItem) => activityIdentity(chainItem) === localKey);
+        }));
         setActivityStatus(
           chainItems.length > 0
             ? "On-chain activity synced."
@@ -370,11 +415,16 @@ export default function Dashboard() {
     void loadAiSignal();
   }, [loadAiSignal]);
 
+  const effectiveActivityItems = useMemo(
+    () => mergeActivityLists(activityItems, localActivityItems),
+    [activityItems, localActivityItems],
+  );
+
   const walletKey = walletAddress ?? "guest";
 
   const walletActivity = useMemo(
-    () => activityItems.filter((item) => item.wallet === walletKey),
-    [activityItems, walletKey],
+    () => effectiveActivityItems.filter((item) => item.wallet === walletKey),
+    [effectiveActivityItems, walletKey],
   );
 
   const simulatedShares = useMemo(() => {
@@ -427,8 +477,10 @@ export default function Dashboard() {
     start.setDate(now.getDate() - 29);
     start.setHours(0, 0, 0, 0);
 
-    const txInWindow = activityItems
-      .filter((item) => item.source === "onchain" && (item.action === "DEPOSIT" || item.action === "WITHDRAW"))
+    const txInWindow = effectiveActivityItems
+      .filter((item) =>
+        (item.source === "onchain" || item.source === "fallback")
+        && (item.action === "DEPOSIT" || item.action === "WITHDRAW"))
       .map((item) => ({ ...item, ts: new Date(item.at).getTime() }))
       .filter((item) => Number.isFinite(item.ts) && item.ts >= start.getTime())
       .sort((a, b) => a.ts - b.ts);
@@ -477,7 +529,7 @@ export default function Dashboard() {
       points[points.length - 1].nav = Math.round(onChainSnapshot.totalUsdc);
     }
     return points;
-  }, [activityItems, onChainSnapshot]);
+  }, [effectiveActivityItems, onChainSnapshot]);
 
   const onChainDrawdown7dPct = useMemo(() => {
     if (onChainSnapshot) {
@@ -600,7 +652,7 @@ export default function Dashboard() {
         text: "text-slate-300",
       };
   const liveFundingEntries = effectiveLiveFunding ? Object.entries(effectiveLiveFunding) : [];
-  const recentActivity = useMemo(() => activityItems.slice(0, 6), [activityItems]);
+  const recentActivity = useMemo(() => effectiveActivityItems.slice(0, 6), [effectiveActivityItems]);
   const latestExplorerActivity = useMemo(
     () => recentActivity.find((item) => Boolean(item.explorerUrl)),
     [recentActivity],
@@ -687,6 +739,23 @@ export default function Dashboard() {
       }
       const result = await sendOnChainDeposit(walletProvider, walletAddress, amount);
       setLatestTx({ action: "DEPOSIT", signature: result.signature, explorerUrl: result.explorerUrl });
+      setLocalActivityItems((previous) =>
+        mergeActivityLists(
+          [
+            {
+              id: `local-${result.signature}-deposit`,
+              action: "DEPOSIT",
+              amountUsd: amount,
+              wallet: walletAddress,
+              at: new Date().toISOString(),
+              signature: result.signature,
+              explorerUrl: result.explorerUrl,
+              source: "fallback",
+            },
+          ],
+          previous,
+        ).slice(0, LOCAL_ACTIVITY_LIMIT),
+      );
       setDepositMessage(`Deposit confirmed on-chain: ${result.signature.slice(0, 8)}...`);
 
       setDepositAmount("");
@@ -728,6 +797,23 @@ export default function Dashboard() {
       }
       const result = await sendOnChainWithdraw(walletProvider, walletAddress, amount);
       setLatestTx({ action: "WITHDRAW", signature: result.signature, explorerUrl: result.explorerUrl });
+      setLocalActivityItems((previous) =>
+        mergeActivityLists(
+          [
+            {
+              id: `local-${result.signature}-withdraw`,
+              action: "WITHDRAW",
+              amountUsd: amount,
+              wallet: walletAddress,
+              at: new Date().toISOString(),
+              signature: result.signature,
+              explorerUrl: result.explorerUrl,
+              source: "fallback",
+            },
+          ],
+          previous,
+        ).slice(0, LOCAL_ACTIVITY_LIMIT),
+      );
       setWithdrawMessage(`Withdraw confirmed on-chain: ${result.signature.slice(0, 8)}...`);
 
       setWithdrawAmount("");

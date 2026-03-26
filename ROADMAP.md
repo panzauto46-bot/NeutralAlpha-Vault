@@ -156,6 +156,7 @@ Exit criteria:
 - [x] Fixed Associated Token Program ID typo (`...bsiqW...`) to resolve `ProgramAccountNotFound` on ATA creation path
 - [x] Deposit button gating now prioritizes on-chain `paused/emergency` state over telemetry fallback to avoid false positive blocks
 - [x] Added automatic retry + backoff for transient RPC `429` rate-limit failures during on-chain tx submission
+- [x] Recent Activity now renders immediate local fallback records after tx success and reconciles with on-chain/API activity
 
 ## Immediate Next 3 Days Plan (2026-03-23 to 2026-03-25)
 
