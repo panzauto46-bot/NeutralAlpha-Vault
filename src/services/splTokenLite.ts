@@ -45,7 +45,7 @@ export function createAssociatedTokenAccountInstruction(
       { pubkey: tokenProgramId, isSigner: false, isWritable: false },
       { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
     ],
-    data: Buffer.alloc(0),
+    data: new Uint8Array(0) as unknown as Buffer,
   };
 
   return new TransactionInstruction(fields);
