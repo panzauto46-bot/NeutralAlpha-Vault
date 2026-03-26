@@ -144,6 +144,25 @@ function extractErrorMessage(error: unknown): string {
     if (typeof reason === "string" && reason.trim().length > 0) {
       return reason.trim();
     }
+    const code = asRecord.code;
+    if (typeof code === "number" || typeof code === "string") {
+      return `Wallet error code: ${String(code)}`;
+    }
+    const logs = asRecord.logs;
+    if (Array.isArray(logs)) {
+      const firstLog = logs.find((item) => typeof item === "string" && item.trim().length > 0);
+      if (typeof firstLog === "string") {
+        return firstLog.trim();
+      }
+    }
+    try {
+      const compact = JSON.stringify(asRecord);
+      if (compact && compact !== "{}") {
+        return compact.length > 240 ? `${compact.slice(0, 240)}...` : compact;
+      }
+    } catch {
+      // Ignore JSON stringify failures and use fallback below.
+    }
   }
   return "Unexpected error";
 }

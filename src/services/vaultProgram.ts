@@ -28,7 +28,7 @@ type ActivityAction = "DEPOSIT" | "WITHDRAW" | "REBALANCE";
 
 interface WalletSigner {
   publicKey: PublicKey;
-  signAndSendTransaction: (
+  signAndSendTransaction?: (
     transaction: Transaction,
     options?: {
       skipPreflight?: boolean;
@@ -36,6 +36,7 @@ interface WalletSigner {
       maxRetries?: number;
     },
   ) => Promise<{ signature: string } | string>;
+  signTransaction?: (transaction: Transaction) => Promise<Transaction>;
 }
 
 interface RuntimeConfig {
@@ -308,6 +309,25 @@ function extractErrorMessage(error: unknown): string {
     if (typeof details === "string" && details.trim().length > 0) {
       return details.trim();
     }
+    const code = asRecord.code;
+    if (typeof code === "number" || typeof code === "string") {
+      return `Wallet error code: ${String(code)}`;
+    }
+    const logs = asRecord.logs;
+    if (Array.isArray(logs)) {
+      const firstLog = logs.find((item) => typeof item === "string" && item.trim().length > 0);
+      if (typeof firstLog === "string") {
+        return firstLog.trim();
+      }
+    }
+    try {
+      const compact = JSON.stringify(asRecord);
+      if (compact && compact !== "{}") {
+        return compact.length > 240 ? `${compact.slice(0, 240)}...` : compact;
+      }
+    } catch {
+      // Ignore JSON stringify failures and return fallback below.
+    }
   }
   return "Unexpected error";
 }
@@ -393,16 +413,48 @@ async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
   tx.feePayer = wallet.publicKey;
   tx.recentBlockhash = latest.blockhash;
 
-  let signed: { signature: string } | string;
+  let signature: string | null = null;
   try {
-    signed = await wallet.signAndSendTransaction(tx, {
-      preflightCommitment: COMMITMENT,
-      maxRetries: 3,
-    });
+    if (typeof wallet.signAndSendTransaction === "function") {
+      const signed = await wallet.signAndSendTransaction(tx, {
+        preflightCommitment: COMMITMENT,
+        maxRetries: 3,
+      });
+      signature = typeof signed === "string" ? signed : signed.signature;
+    } else if (typeof wallet.signTransaction === "function") {
+      const signedTx = await wallet.signTransaction(tx);
+      signature = await connection.sendRawTransaction(signedTx.serialize(), {
+        preflightCommitment: COMMITMENT,
+        maxRetries: 3,
+      });
+    } else {
+      throw new Error("Wallet provider does not support transaction signing.");
+    }
   } catch (error) {
-    throw new Error(extractErrorMessage(error));
+    const primaryMessage = extractErrorMessage(error);
+    // Some injected wallets throw undefined/empty objects from signAndSendTransaction.
+    // Retry with signTransaction path when available so users are not blocked by provider quirks.
+    if (
+      (primaryMessage === "Unexpected error" || primaryMessage.startsWith("Wallet error code:")) &&
+      typeof wallet.signTransaction === "function"
+    ) {
+      try {
+        const signedTx = await wallet.signTransaction(tx);
+        signature = await connection.sendRawTransaction(signedTx.serialize(), {
+          preflightCommitment: COMMITMENT,
+          maxRetries: 3,
+        });
+      } catch (fallbackError) {
+        throw new Error(extractErrorMessage(fallbackError));
+      }
+    } else {
+      throw new Error(primaryMessage);
+    }
   }
-  const signature = typeof signed === "string" ? signed : signed.signature;
+
+  if (!signature) {
+    throw new Error("Failed to obtain transaction signature.");
+  }
   const confirmation = await connection.confirmTransaction(
     {
       signature,
@@ -419,8 +471,10 @@ async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
 
 function extractWalletSigner(input: unknown): WalletSigner {
   const provider = input as Partial<WalletSigner> | null;
-  if (!provider || !provider.publicKey || typeof provider.signAndSendTransaction !== "function") {
-    throw new Error("Wallet provider does not support signAndSendTransaction.");
+  const supportsSignAndSend = provider && typeof provider.signAndSendTransaction === "function";
+  const supportsSignOnly = provider && typeof provider.signTransaction === "function";
+  if (!provider || !provider.publicKey || (!supportsSignAndSend && !supportsSignOnly)) {
+    throw new Error("Wallet provider does not support transaction signing.");
   }
   return provider as WalletSigner;
 }
