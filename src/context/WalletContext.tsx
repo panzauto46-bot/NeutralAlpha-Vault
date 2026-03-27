@@ -42,60 +42,6 @@ const WALLET_ICONS: Record<string, string> = {
   Solflare: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/solflare.svg",
   Backpack: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/backpack.svg",
 };
-const WALLET_SESSION_KEY = "neutralalpha:wallet-session:v1";
-
-interface WalletSessionMarker {
-  walletName: string;
-  connectedAt: number;
-}
-
-function readWalletSessionMarker(): WalletSessionMarker | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const raw = window.sessionStorage.getItem(WALLET_SESSION_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<WalletSessionMarker>;
-    if (typeof parsed.walletName !== "string" || !parsed.walletName) {
-      return null;
-    }
-    const connectedAt = Number(parsed.connectedAt);
-    return {
-      walletName: parsed.walletName,
-      connectedAt: Number.isFinite(connectedAt) ? connectedAt : Date.now(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeWalletSessionMarker(walletName: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.sessionStorage.setItem(
-      WALLET_SESSION_KEY,
-      JSON.stringify({ walletName, connectedAt: Date.now() } satisfies WalletSessionMarker),
-    );
-  } catch {
-    // Ignore sessionStorage write errors.
-  }
-}
-
-function clearWalletSessionMarker() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.sessionStorage.removeItem(WALLET_SESSION_KEY);
-  } catch {
-    // Ignore sessionStorage remove errors.
-  }
-}
 
 function detectWallets(): DetectedWallet[] {
   if (typeof window === "undefined") return [];
@@ -161,62 +107,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // Detect wallets on mount
   useEffect(() => {
-    let cancelled = false;
-    const detect = async () => {
+    const detect = () => {
       const wallets = detectWallets();
-      if (cancelled) return;
       setAvailableWallets(wallets);
       setWalletReady(wallets.length > 0);
-
-      const marker = readWalletSessionMarker();
-      if (!marker) {
-        // New browser session: do not reuse stale trusted wallet sessions.
-        await Promise.all(
-          wallets.map(async (wallet) => {
-            if (!wallet.provider.publicKey) {
-              return;
-            }
-            try {
-              await wallet.provider.disconnect();
-            } catch {
-              // Ignore disconnect failures from wallet extensions.
-            }
-          }),
-        );
-        if (cancelled) return;
-        setWalletAddress(null);
-        setWalletName(null);
-        setActiveProvider(null);
-        return;
-      }
-
-      const preferredWallet = wallets.find((wallet) => wallet.name === marker.walletName);
-      if (!preferredWallet) {
-        clearWalletSessionMarker();
-        return;
-      }
-
-      try {
-        const result = await preferredWallet.provider.connect({ onlyIfTrusted: true });
-        if (cancelled) return;
-        setWalletAddress(result.publicKey.toString());
-        setWalletName(preferredWallet.name);
-        setActiveProvider(preferredWallet.provider);
-      } catch {
-        clearWalletSessionMarker();
-        if (cancelled) return;
-        setWalletAddress(null);
-        setWalletName(null);
-        setActiveProvider(null);
-      }
     };
 
+    // Strict mode: no trusted auto-connect on load.
+    setWalletAddress(null);
+    setWalletName(null);
+    setActiveProvider(null);
+
     // Wallets inject after page load, so check with delay
-    void detect();
-    const timer = setTimeout(() => { void detect(); }, 500);
-    const timer2 = setTimeout(() => { void detect(); }, 1500);
+    detect();
+    const timer = setTimeout(detect, 500);
+    const timer2 = setTimeout(detect, 1500);
     return () => {
-      cancelled = true;
       clearTimeout(timer);
       clearTimeout(timer2);
     };
@@ -257,7 +163,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setWalletAddress(result.publicKey.toString());
       setWalletName(wallet.name);
       setActiveProvider(wallet.provider);
-      writeWalletSessionMarker(wallet.name);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection rejected.";
       throw new Error(message);
@@ -270,7 +175,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!activeProvider) {
       setWalletAddress(null);
       setWalletName(null);
-      clearWalletSessionMarker();
       return;
     }
     setWalletBusy(true);
@@ -279,7 +183,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setWalletAddress(null);
       setWalletName(null);
       setActiveProvider(null);
-      clearWalletSessionMarker();
     } finally {
       setWalletBusy(false);
     }
