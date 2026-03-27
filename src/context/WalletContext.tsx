@@ -23,6 +23,7 @@ export interface SolanaWalletProvider {
 
 interface WalletContextValue {
   walletAddress: string | null;
+  walletSessionAuthorized: boolean;
   walletReady: boolean;
   walletBusy: boolean;
   walletName: string | null;
@@ -98,6 +99,7 @@ function detectWallets(): DetectedWallet[] {
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletSessionAuthorized, setWalletSessionAuthorized] = useState(false);
   const [walletReady, setWalletReady] = useState(false);
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletName, setWalletName] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     // Strict mode: no trusted auto-connect on load.
     setWalletAddress(null);
+    setWalletSessionAuthorized(false);
     setWalletName(null);
     setActiveProvider(null);
 
@@ -134,6 +137,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     const onDisconnect = () => {
       setWalletAddress(null);
+      setWalletSessionAuthorized(false);
       setWalletName(null);
       setActiveProvider(null);
     };
@@ -144,6 +148,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return;
       }
       setWalletAddress(publicKey.toString());
+      setWalletSessionAuthorized(true);
     };
 
     activeProvider.on?.("disconnect", onDisconnect);
@@ -161,6 +166,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const result = await wallet.provider.connect();
       setWalletAddress(result.publicKey.toString());
+      setWalletSessionAuthorized(true);
       setWalletName(wallet.name);
       setActiveProvider(wallet.provider);
     } catch (err) {
@@ -174,6 +180,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(async () => {
     if (!activeProvider) {
       setWalletAddress(null);
+      setWalletSessionAuthorized(false);
       setWalletName(null);
       return;
     }
@@ -181,6 +188,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       await activeProvider.disconnect();
       setWalletAddress(null);
+      setWalletSessionAuthorized(false);
       setWalletName(null);
       setActiveProvider(null);
     } finally {
@@ -191,6 +199,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       walletAddress,
+      walletSessionAuthorized,
       walletReady,
       walletBusy,
       walletName,
@@ -203,6 +212,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }),
     [
       walletAddress,
+      walletSessionAuthorized,
       walletReady,
       walletBusy,
       walletName,

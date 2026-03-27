@@ -11,7 +11,7 @@ function shortAddress(address: string) {
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { walletAddress, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
+  const { walletAddress, walletSessionAuthorized, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
   const location = useLocation();
   const isDashboardRoute = location.pathname === "/dashboard";
   const brandRoute = isDashboardRoute ? "/dashboard" : "/";
@@ -55,14 +55,14 @@ export default function Navbar() {
     if (!walletReady) {
       return "Connect Wallet";
     }
-    if (!walletAddress) {
+    if (!walletAddress || !walletSessionAuthorized) {
       return "Connect Wallet";
     }
     const prefix = walletName ? `${walletName} - ` : "";
     return `${prefix}${shortAddress(walletAddress)}`;
-  }, [walletAddress, walletBusy, walletReady, walletName]);
+  }, [walletAddress, walletBusy, walletReady, walletName, walletSessionAuthorized]);
 
-  const walletConnected = Boolean(walletAddress);
+  const walletConnected = Boolean(walletAddress && walletSessionAuthorized);
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass-dark">

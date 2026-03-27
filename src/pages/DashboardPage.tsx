@@ -5,13 +5,13 @@ import { useWallet } from "@/context/WalletContext";
 import { Link } from "react-router-dom";
 
 export default function DashboardPage() {
-  const { walletAddress, walletBusy, setShowWalletModal } = useWallet();
+  const { walletAddress, walletSessionAuthorized, walletBusy, setShowWalletModal } = useWallet();
 
   return (
     <div className="min-h-screen bg-dark-900">
       <Navbar />
       <main className="pt-16">
-        {walletAddress ? (
+        {walletAddress && walletSessionAuthorized ? (
           <AppErrorBoundary fallbackTitle="Dashboard crash detected">
             <Dashboard />
           </AppErrorBoundary>
