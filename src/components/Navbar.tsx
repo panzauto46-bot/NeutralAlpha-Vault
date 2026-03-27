@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Menu, X, Wallet, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWallet } from "@/context/WalletContext";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { NETWORK_BADGE_LABEL, NETWORK_PILL_CLASS } from "@/config/network";
 
 function shortAddress(address: string) {
@@ -13,6 +13,7 @@ export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const { walletAddress, walletSessionAuthorized, walletReady, walletBusy, walletName, setShowWalletModal, disconnect } = useWallet();
   const location = useLocation();
+  const navigate = useNavigate();
   const isDashboardRoute = location.pathname === "/dashboard";
   const brandRoute = isDashboardRoute ? "/dashboard" : "/";
 
@@ -36,15 +37,24 @@ export default function Navbar() {
 
   async function handleWalletClick() {
     try {
-      if (walletAddress) {
-        await disconnect();
-        return;
-      }
       // Open wallet selection modal
       setShowWalletModal(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown wallet error.";
       window.alert(`Wallet action failed: ${message}`);
+    }
+  }
+
+  async function handleLogoutClick() {
+    try {
+      await disconnect();
+      setShowWalletModal(false);
+      if (location.pathname === "/dashboard") {
+        navigate("/", { replace: true });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown wallet error.";
+      window.alert(`Logout failed: ${message}`);
     }
   }
 
@@ -132,6 +142,15 @@ export default function Navbar() {
                 walletLabel
               )}
             </button>
+            {walletConnected ? (
+              <button
+                onClick={() => void handleLogoutClick()}
+                disabled={walletBusy}
+                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border border-rose-500/30 text-rose-300 hover:bg-rose-500/10 transition-all disabled:opacity-60"
+              >
+                Log out
+              </button>
+            ) : null}
 
             <button onClick={() => setIsOpen(!isOpen)} className="md:hidden p-2 text-slate-400 hover:text-white">
               {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -178,6 +197,15 @@ export default function Navbar() {
                 <Wallet className="w-4 h-4" />
                 {walletLabel}
               </button>
+              {walletConnected ? (
+                <button
+                  onClick={() => void handleLogoutClick()}
+                  disabled={walletBusy}
+                  className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border border-rose-500/30 text-rose-300 hover:bg-rose-500/10 transition-all disabled:opacity-60"
+                >
+                  Log out
+                </button>
+              ) : null}
             </div>
           </motion.div>
         )}
