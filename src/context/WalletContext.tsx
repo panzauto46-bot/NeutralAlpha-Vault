@@ -16,6 +16,10 @@ export interface SolanaWalletProvider {
   publicKey?: { toString(): string } | null;
   connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
   disconnect: () => Promise<void>;
+  signMessage?: (
+    message: Uint8Array,
+    display?: "utf8" | "hex",
+  ) => Promise<Uint8Array | { signature?: Uint8Array }>;
   signAndSendTransaction?: (...args: unknown[]) => Promise<unknown>;
   on?: (event: string, callback: (...args: unknown[]) => void) => void;
   off?: (event: string, callback: (...args: unknown[]) => void) => void;
@@ -43,6 +47,7 @@ const WALLET_ICONS: Record<string, string> = {
   Solflare: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/solflare.svg",
   Backpack: "https://raw.githubusercontent.com/nicnocquee/crypto-icons/refs/heads/main/wallets/backpack.svg",
 };
+const TEXT_ENCODER = new TextEncoder();
 
 function detectWallets(): DetectedWallet[] {
   if (typeof window === "undefined") return [];
@@ -196,11 +201,42 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
 
       const result = await wallet.provider.connect({ onlyIfTrusted: false });
-      setWalletAddress(result.publicKey.toString());
+      const address = result.publicKey.toString();
+      if (typeof wallet.provider.signMessage !== "function") {
+        throw new Error(`${wallet.name} does not support signMessage. Use a supported wallet to continue.`);
+      }
+
+      // Require explicit user signature every login session.
+      const nonce = crypto.randomUUID();
+      const challenge = [
+        "NeutralAlpha Vault Login",
+        `Wallet: ${address}`,
+        `Nonce: ${nonce}`,
+        `Issued At: ${new Date().toISOString()}`,
+      ].join("\n");
+      const signatureResult = await wallet.provider.signMessage(TEXT_ENCODER.encode(challenge), "utf8");
+      const signature =
+        signatureResult instanceof Uint8Array
+          ? signatureResult
+          : signatureResult?.signature;
+      if (!(signature instanceof Uint8Array) || signature.length === 0) {
+        throw new Error("Wallet signature was not produced.");
+      }
+
+      setWalletAddress(address);
       setWalletSessionAuthorized(true);
       setWalletName(wallet.name);
       setActiveProvider(wallet.provider);
     } catch (err) {
+      try {
+        await wallet.provider.disconnect();
+      } catch {
+        // Ignore disconnect failure after rejected login signature.
+      }
+      setWalletAddress(null);
+      setWalletSessionAuthorized(false);
+      setWalletName(null);
+      setActiveProvider(null);
       const message = err instanceof Error ? err.message : "Connection rejected.";
       throw new Error(message);
     } finally {
