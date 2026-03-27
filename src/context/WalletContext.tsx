@@ -109,23 +109,44 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   // Detect wallets on mount
   useEffect(() => {
+    let cancelled = false;
+
     const detect = () => {
       const wallets = detectWallets();
+      if (cancelled) return;
       setAvailableWallets(wallets);
       setWalletReady(wallets.length > 0);
     };
 
-    // Strict mode: no trusted auto-connect on load.
-    setWalletAddress(null);
-    setWalletSessionAuthorized(false);
-    setWalletName(null);
-    setActiveProvider(null);
+    const resetTrustedSessions = async () => {
+      const wallets = detectWallets();
+      await Promise.all(
+        wallets.map(async (wallet) => {
+          try {
+            await wallet.provider.disconnect();
+          } catch {
+            // Ignore provider disconnect failures.
+          }
+        }),
+      );
+
+      if (cancelled) return;
+      setWalletAddress(null);
+      setWalletSessionAuthorized(false);
+      setWalletName(null);
+      setActiveProvider(null);
+      setAvailableWallets(wallets);
+      setWalletReady(wallets.length > 0);
+    };
+
+    void resetTrustedSessions();
 
     // Wallets inject after page load, so check with delay
     detect();
     const timer = setTimeout(detect, 500);
     const timer2 = setTimeout(detect, 1500);
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       clearTimeout(timer2);
     };
