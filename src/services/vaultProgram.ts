@@ -418,6 +418,8 @@ const RETRYABLE_TX_ERRORS = [
 ];
 const MAX_TX_RETRIES = 4;
 const RETRY_DELAY_MS = 1500;
+const WALLET_ACTIVITY_SCAN_LIMIT = 250;
+const WALLET_ACTIVITY_PAGE_LIMIT = 100;
 
 function isRetryableError(err: unknown): boolean {
   const errStr = (typeof err === "string" ? err : JSON.stringify(err)).toLowerCase();
@@ -426,6 +428,38 @@ function isRetryableError(err: unknown): boolean {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function collectWalletSignatures(
+  connection: Connection,
+  wallet: PublicKey,
+  maxCount: number,
+) {
+  const rows: Array<{ signature: string; blockTime: number | null }> = [];
+  let before: string | undefined;
+
+  while (rows.length < maxCount) {
+    const page = await connection.getSignaturesForAddress(
+      wallet,
+      {
+        limit: Math.min(WALLET_ACTIVITY_PAGE_LIMIT, maxCount - rows.length),
+        ...(before ? { before } : {}),
+      },
+      FINALITY,
+    );
+    if (page.length === 0) {
+      break;
+    }
+
+    rows.push(...page.map((item) => ({ signature: item.signature, blockTime: item.blockTime ?? null })));
+    before = page[page.length - 1]?.signature;
+
+    if (page.length < WALLET_ACTIVITY_PAGE_LIMIT) {
+      break;
+    }
+  }
+
+  return rows;
 }
 
 async function sendTransaction(wallet: WalletSigner, tx: Transaction) {
@@ -855,7 +889,11 @@ export async function sendOnChainWithdraw(
 export async function fetchOnChainActivity(limit = 20, walletFilter?: string): Promise<VaultActivityItem[]> {
   const { connection, programId } = ensureConfig();
   const signatures = walletFilter
-    ? await connection.getSignaturesForAddress(new PublicKey(walletFilter), { limit: Math.max(limit * 2, 40) }, FINALITY)
+    ? await collectWalletSignatures(
+      connection,
+      new PublicKey(walletFilter),
+      Math.max(WALLET_ACTIVITY_SCAN_LIMIT, limit * 8),
+    )
     : await connection.getSignaturesForAddress(programId, { limit }, FINALITY);
 
   const transactions = await Promise.all(
