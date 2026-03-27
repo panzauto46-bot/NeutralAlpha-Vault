@@ -418,8 +418,10 @@ const RETRYABLE_TX_ERRORS = [
 ];
 const MAX_TX_RETRIES = 4;
 const RETRY_DELAY_MS = 1500;
-const WALLET_ACTIVITY_SCAN_LIMIT = 250;
-const WALLET_ACTIVITY_PAGE_LIMIT = 100;
+const WALLET_ACTIVITY_SCAN_LIMIT = 120;
+const WALLET_ACTIVITY_PAGE_LIMIT = 50;
+const ACTIVITY_RPC_RETRIES = 3;
+const ACTIVITY_RETRY_DELAY_MS = 500;
 
 function isRetryableError(err: unknown): boolean {
   const errStr = (typeof err === "string" ? err : JSON.stringify(err)).toLowerCase();
@@ -428,6 +430,46 @@ function isRetryableError(err: unknown): boolean {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getSignaturesForAddressWithRetry(
+  connection: Connection,
+  address: PublicKey,
+  options: { limit?: number; before?: string },
+  commitment: Finality,
+) {
+  for (let attempt = 1; attempt <= ACTIVITY_RPC_RETRIES; attempt += 1) {
+    try {
+      return await connection.getSignaturesForAddress(address, options, commitment);
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      if (isRetryableError(message) && attempt < ACTIVITY_RPC_RETRIES) {
+        await sleep(ACTIVITY_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw new Error(message);
+    }
+  }
+  return [];
+}
+
+async function getTransactionWithRetry(connection: Connection, signature: string) {
+  for (let attempt = 1; attempt <= ACTIVITY_RPC_RETRIES; attempt += 1) {
+    try {
+      return await connection.getTransaction(signature, {
+        commitment: FINALITY,
+        maxSupportedTransactionVersion: 0,
+      });
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      if (isRetryableError(message) && attempt < ACTIVITY_RPC_RETRIES) {
+        await sleep(ACTIVITY_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw new Error(message);
+    }
+  }
+  return null;
 }
 
 async function collectWalletSignatures(
@@ -439,7 +481,8 @@ async function collectWalletSignatures(
   let before: string | undefined;
 
   while (rows.length < maxCount) {
-    const page = await connection.getSignaturesForAddress(
+    const page = await getSignaturesForAddressWithRetry(
+      connection,
       wallet,
       {
         limit: Math.min(WALLET_ACTIVITY_PAGE_LIMIT, maxCount - rows.length),
@@ -888,79 +931,79 @@ export async function sendOnChainWithdraw(
 
 export async function fetchOnChainActivity(limit = 20, walletFilter?: string): Promise<VaultActivityItem[]> {
   const { connection, programId } = ensureConfig();
+  const signatureScanLimit = walletFilter
+    ? Math.min(WALLET_ACTIVITY_SCAN_LIMIT, Math.max(limit * 5, 60))
+    : Math.min(WALLET_ACTIVITY_SCAN_LIMIT, Math.max(limit * 3, 30));
   const signatures = walletFilter
     ? await collectWalletSignatures(
       connection,
       new PublicKey(walletFilter),
-      Math.max(WALLET_ACTIVITY_SCAN_LIMIT, limit * 8),
+      signatureScanLimit,
     )
-    : await connection.getSignaturesForAddress(programId, { limit }, FINALITY);
+    : await getSignaturesForAddressWithRetry(connection, programId, { limit: signatureScanLimit }, FINALITY);
 
-  const transactions = await Promise.all(
-    signatures.map(async ({ signature, blockTime }) => {
-      try {
-        const tx = await connection.getTransaction(signature, {
-          commitment: FINALITY,
-          maxSupportedTransactionVersion: 0,
-        });
-        if (!tx) {
-          return null;
-        }
-
-        const { accountKeys, instructions } = getInstructionBundle(tx as never);
-        const programPresent = accountKeys.includes(programId.toBase58());
-        if (!programPresent) {
-          return null;
-        }
-
-        const programIx = instructions.find((ix) => accountKeys[ix.programIdIndex] === programId.toBase58());
-
-        const decoded = programIx ? decodeAmountFromInstructionData(programIx.data) : null;
-        const actionFromLogs = decodeActionFromLogs(tx.meta?.logMessages as string[] | undefined);
-        const action = decoded?.action ?? actionFromLogs;
-        if (!action) {
-          return null;
-        }
-
-        let wallet = "unknown";
-        if (decoded && programIx) {
-          const ownerAccountPosition = decoded.action === "REBALANCE" ? 2 : 7;
-          const depositorKeyIndex = programIx.accounts[ownerAccountPosition];
-          wallet = typeof depositorKeyIndex === "number" ? accountKeys[depositorKeyIndex] ?? "unknown" : "unknown";
-        } else if (walletFilter) {
-          wallet = walletFilter;
-        }
-
-        if (walletFilter && wallet !== walletFilter) {
-          return null;
-        }
-
-        let amountUsd = 0;
-        if (wallet !== "unknown" && (action === "DEPOSIT" || action === "WITHDRAW")) {
-          amountUsd = deriveAmountFromTokenBalances(tx as never, wallet);
-        }
-        if (amountUsd <= 0 && decoded?.action === "DEPOSIT") {
-          // Deposit instruction argument is USDC base units, so this fallback is safe.
-          amountUsd = fromBaseUnits(decoded.amountBaseUnits);
-        }
-
-        return {
-          id: signature,
-          action,
-          amountUsd,
-          wallet,
-          at: new Date((blockTime ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
-          signature,
-          explorerUrl: buildSolscanTxUrl(signature),
-          source: "onchain" as const,
-        };
-      } catch {
-        return null;
+  const transactions: VaultActivityItem[] = [];
+  for (const { signature, blockTime } of signatures) {
+    if (transactions.length >= limit) {
+      break;
+    }
+    try {
+      const tx = await getTransactionWithRetry(connection, signature);
+      if (!tx) {
+        continue;
       }
-    }),
-  );
 
-  return transactions
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-    .slice(0, limit);
+      const { accountKeys, instructions } = getInstructionBundle(tx as never);
+      const programPresent = accountKeys.includes(programId.toBase58());
+      if (!programPresent) {
+        continue;
+      }
+
+      const programIx = instructions.find((ix) => accountKeys[ix.programIdIndex] === programId.toBase58());
+
+      const decoded = programIx ? decodeAmountFromInstructionData(programIx.data) : null;
+      const actionFromLogs = decodeActionFromLogs(tx.meta?.logMessages as string[] | undefined);
+      const action = decoded?.action ?? actionFromLogs;
+      if (!action) {
+        continue;
+      }
+
+      let wallet = "unknown";
+      if (decoded && programIx) {
+        const ownerAccountPosition = decoded.action === "REBALANCE" ? 2 : 7;
+        const depositorKeyIndex = programIx.accounts[ownerAccountPosition];
+        wallet = typeof depositorKeyIndex === "number" ? accountKeys[depositorKeyIndex] ?? "unknown" : "unknown";
+      } else if (walletFilter) {
+        wallet = walletFilter;
+      }
+
+      if (walletFilter && wallet !== walletFilter) {
+        continue;
+      }
+
+      let amountUsd = 0;
+      if (wallet !== "unknown" && (action === "DEPOSIT" || action === "WITHDRAW")) {
+        amountUsd = deriveAmountFromTokenBalances(tx as never, wallet);
+      }
+      if (amountUsd <= 0 && decoded?.action === "DEPOSIT") {
+        // Deposit instruction argument is USDC base units, so this fallback is safe.
+        amountUsd = fromBaseUnits(decoded.amountBaseUnits);
+      }
+
+      transactions.push({
+        id: signature,
+        action,
+        amountUsd,
+        wallet,
+        at: new Date((blockTime ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+        signature,
+        explorerUrl: buildSolscanTxUrl(signature),
+        source: "onchain" as const,
+      });
+    } catch {
+      // Skip malformed or temporarily unavailable signatures.
+    }
+  }
+
+  return transactions;
 }

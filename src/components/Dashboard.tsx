@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   LineChart,
@@ -60,6 +60,8 @@ type ActivityFilter = "ALL" | "DEPOSIT" | "WITHDRAW";
 const POLL_INTERVAL_MS = 15_000;
 const QUICK_AMOUNTS_USD = [25, 100, 250];
 const LOCAL_ACTIVITY_LIMIT = 25;
+const ONCHAIN_ACTIVITY_FETCH_LIMIT = 18;
+const ACTIVITY_CACHE_KEY_PREFIX = "neutralalpha:activity-cache:v2";
 const ACTIVITY_FILTER_OPTIONS: Array<{ value: ActivityFilter; label: string }> = [
   { value: "ALL", label: "All" },
   { value: "DEPOSIT", label: "Deposit" },
@@ -238,6 +240,84 @@ function activitySourceMeta(source: VaultActivityItem["source"] | undefined) {
   };
 }
 
+function resolveActivityCacheKey(walletAddress: string | null) {
+  const walletKey = walletAddress ?? "guest";
+  const programKey = VAULT_PROGRAM_ID ?? "unknown-program";
+  const mintKey = USDC_MINT ?? "unknown-mint";
+  return `${ACTIVITY_CACHE_KEY_PREFIX}:${programKey}:${mintKey}:${walletKey}`;
+}
+
+function normalizeCachedActivity(raw: unknown): VaultActivityItem[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const normalized: VaultActivityItem[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const item = entry as Record<string, unknown>;
+    const action = item.action;
+    if (action !== "DEPOSIT" && action !== "WITHDRAW" && action !== "REBALANCE") {
+      continue;
+    }
+    const id = typeof item.id === "string" && item.id.trim().length > 0
+      ? item.id
+      : typeof item.signature === "string" && item.signature.trim().length > 0
+        ? item.signature
+        : "";
+    const wallet = typeof item.wallet === "string" && item.wallet.trim().length > 0 ? item.wallet : "unknown";
+    const at = typeof item.at === "string" && item.at.trim().length > 0 ? item.at : new Date().toISOString();
+    const amountUsd = Number(item.amountUsd);
+    if (!id || !Number.isFinite(amountUsd)) {
+      continue;
+    }
+    const source = item.source === "api" || item.source === "onchain" || item.source === "fallback"
+      ? item.source
+      : "fallback";
+    normalized.push({
+      id,
+      action,
+      amountUsd,
+      wallet,
+      at,
+      signature: typeof item.signature === "string" ? item.signature : undefined,
+      explorerUrl: typeof item.explorerUrl === "string" ? item.explorerUrl : undefined,
+      source,
+    });
+  }
+  return normalized
+    .sort((a, b) => activityTimestamp(b) - activityTimestamp(a))
+    .slice(0, LOCAL_ACTIVITY_LIMIT);
+}
+
+function readCachedActivity(cacheKey: string): VaultActivityItem[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(cacheKey);
+    if (!raw) {
+      return [];
+    }
+    return normalizeCachedActivity(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedActivity(cacheKey: string, items: VaultActivityItem[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const normalized = normalizeCachedActivity(items);
+    window.localStorage.setItem(cacheKey, JSON.stringify(normalized));
+  } catch {
+    // Ignore localStorage write failures.
+  }
+}
+
 export default function Dashboard() {
   const { walletAddress, walletReady, walletProvider } = useWallet();
 
@@ -272,6 +352,8 @@ export default function Dashboard() {
   const [localActivityItems, setLocalActivityItems] = useState<VaultActivityItem[]>([]);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("ALL");
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const activityItemsRef = useRef<VaultActivityItem[]>([]);
+  const activityCacheKey = useMemo(() => resolveActivityCacheKey(walletAddress ?? null), [walletAddress]);
 
   const onChainReady = walletReady &&
     Boolean(walletAddress) &&
@@ -341,34 +423,52 @@ export default function Dashboard() {
   }, [walletAddress]);
 
   const loadActivity = useCallback(async () => {
+    let onChainAttempted = false;
+
     if (isOnChainConfigured()) {
+      onChainAttempted = true;
       try {
-        const chainItems = await fetchOnChainActivity(25, walletAddress ?? undefined);
-        setActivityItems(chainItems);
-        setLocalActivityItems((previous) => previous.filter((localItem) => {
-          const localKey = activityIdentity(localItem);
-          return !chainItems.some((chainItem) => activityIdentity(chainItem) === localKey);
-        }));
-        setActivityStatus(
-          chainItems.length > 0
-            ? "On-chain activity synced."
-            : "On-chain activity synced (no tx found yet).",
-        );
-        return;
+        const chainItems = await fetchOnChainActivity(ONCHAIN_ACTIVITY_FETCH_LIMIT, walletAddress ?? undefined);
+        if (chainItems.length > 0) {
+          setActivityItems(chainItems);
+          setLocalActivityItems((previous) => previous.filter((localItem) => {
+            const localKey = activityIdentity(localItem);
+            return !chainItems.some((chainItem) => activityIdentity(chainItem) === localKey);
+          }));
+          setActivityStatus("On-chain activity synced.");
+          return;
+        }
       } catch {
-        setActivityStatus("On-chain activity fetch failed. Trying telemetry API.");
+        // Continue to telemetry fallback before declaring error.
       }
     }
 
     try {
       const payload = await fetchVaultActivity();
-      setActivityItems(payload.items.map((item) => ({ ...item, source: "api" })));
-      setActivityStatus("Telemetry API activity synced.");
+      const apiItems = payload.items.map((item) => ({ ...item, source: "api" as const }));
+      if (apiItems.length > 0) {
+        setActivityItems(apiItems);
+        setActivityStatus("Telemetry API activity synced.");
+        return;
+      }
     } catch {
+      // Continue to cache fallback below.
+    }
+
+    const cachedItems = readCachedActivity(activityCacheKey);
+    const fallbackItems = activityItemsRef.current.length > 0 ? activityItemsRef.current : cachedItems;
+    if (fallbackItems.length > 0) {
+      setActivityItems(fallbackItems);
+      setActivityStatus(
+        onChainAttempted
+          ? "Live RPC busy. Showing cached activity history."
+          : "Showing cached activity history.",
+      );
+    } else {
       setActivityItems([]);
       setActivityStatus("No verifiable activity data.");
     }
-  }, [walletAddress]);
+  }, [activityCacheKey, walletAddress]);
 
   const loadDriftTelemetry = useCallback(async () => {
     try {
@@ -451,6 +551,27 @@ export default function Dashboard() {
     () => mergeActivityLists(activityItems, localActivityItems),
     [activityItems, localActivityItems],
   );
+
+  useEffect(() => {
+    activityItemsRef.current = activityItems;
+  }, [activityItems]);
+
+  useEffect(() => {
+    const cached = readCachedActivity(activityCacheKey);
+    if (cached.length > 0) {
+      setActivityItems(cached);
+      setActivityStatus("Showing cached activity history while syncing live data.");
+      return;
+    }
+    setActivityItems([]);
+  }, [activityCacheKey]);
+
+  useEffect(() => {
+    if (effectiveActivityItems.length === 0) {
+      return;
+    }
+    writeCachedActivity(activityCacheKey, effectiveActivityItems);
+  }, [activityCacheKey, effectiveActivityItems]);
 
   const walletKey = walletAddress ?? "guest";
 
