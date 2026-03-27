@@ -168,8 +168,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         onDisconnect();
         return;
       }
+      if (!walletSessionAuthorized) {
+        // Ignore passive account injections before explicit user connect.
+        return;
+      }
       setWalletAddress(publicKey.toString());
-      setWalletSessionAuthorized(true);
     };
 
     activeProvider.on?.("disconnect", onDisconnect);
@@ -179,13 +182,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       activeProvider.off?.("disconnect", onDisconnect);
       activeProvider.off?.("accountChanged", onAccountChanged as (...args: unknown[]) => void);
     };
-  }, [activeProvider]);
+  }, [activeProvider, walletSessionAuthorized]);
 
   const connectWallet = useCallback(async (wallet: DetectedWallet) => {
     setWalletBusy(true);
     setShowWalletModal(false);
     try {
-      const result = await wallet.provider.connect();
+      // Force fresh wallet handshake so user sees wallet approval/unlock flow.
+      try {
+        await wallet.provider.disconnect();
+      } catch {
+        // Ignore if provider has no active session.
+      }
+
+      const result = await wallet.provider.connect({ onlyIfTrusted: false });
       setWalletAddress(result.publicKey.toString());
       setWalletSessionAuthorized(true);
       setWalletName(wallet.name);
@@ -199,19 +209,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const disconnect = useCallback(async () => {
-    if (!activeProvider) {
-      setWalletAddress(null);
-      setWalletSessionAuthorized(false);
-      setWalletName(null);
+    const provider = activeProvider;
+
+    // Always clear local auth state first, even if provider disconnect fails.
+    setWalletAddress(null);
+    setWalletSessionAuthorized(false);
+    setWalletName(null);
+    setActiveProvider(null);
+
+    if (!provider) {
       return;
     }
     setWalletBusy(true);
     try {
-      await activeProvider.disconnect();
-      setWalletAddress(null);
-      setWalletSessionAuthorized(false);
-      setWalletName(null);
-      setActiveProvider(null);
+      await provider.disconnect();
+    } catch {
+      // Keep local logout successful even if wallet extension is locked/unavailable.
     } finally {
       setWalletBusy(false);
     }
